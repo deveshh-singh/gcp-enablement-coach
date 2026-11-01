@@ -4,104 +4,277 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Enablement Coach</title>
+<meta name="description" content="Turn a document, a web page or your own notes into a short quiz.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #f7f8fa; --card: #ffffff; --text: #1c2430; --muted: #5b6675;
-    --line: #dde2e9; --accent: #1a56c4; --accent-text: #ffffff;
-    --good: #14743f; --good-bg: #e6f4ec; --bad: #a32a2a; --bad-bg: #fbeaea;
+    --bg: #f6f4ee; --panel: #fffdf9; --sunken: #efece3; --ink: #17211f; --muted: #5c6663;
+    --line: #dcd8cc; --accent: #0f6b5c; --accent-strong: #0a5548; --accent-soft: #dcefe9;
+    --on-accent: #ffffff; --good: #16734a; --good-soft: #e0f2e8; --bad: #a93a2c; --bad-soft: #fbe9e5;
+    --shadow: 0 1px 2px rgb(23 33 31 / 6%), 0 10px 30px rgb(23 33 31 / 7%);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #12161c; --card: #1b2129; --text: #e7ebf0; --muted: #9aa5b2;
-      --line: #303945; --accent: #7fb0ff; --accent-text: #0e1a2e;
-      --good: #6fd39b; --good-bg: #16301f; --bad: #f19a9a; --bad-bg: #3a1c1c;
+      --bg: #101614; --panel: #18201d; --sunken: #121a17; --ink: #e9efec; --muted: #9eaba6;
+      --line: #2e3a36; --accent: #5cc7b1; --accent-strong: #80dcc8; --accent-soft: #17352e;
+      --on-accent: #06211b; --good: #6bd6a0; --good-soft: #15332a; --bad: #f2a191; --bad-soft: #3a211c;
+      --shadow: 0 1px 2px rgb(0 0 0 / 30%), 0 10px 30px rgb(0 0 0 / 30%);
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 var(--sans); overflow-wrap: anywhere;
   }
-  main { max-width: 680px; margin: 0 auto; padding: 40px 16px 56px; }
-  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 8px; }
-  h2 { font-size: 1.15rem; margin: 0 0 12px; }
-  .lead { color: var(--muted); margin: 0 0 28px; }
-  .card {
-    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-    padding: 20px; margin-bottom: 16px;
+  a { color: var(--accent-strong); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 0 16px; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; }
+  .brand img { width: 26px; height: 26px; }
+  .top a { color: var(--muted); font-size: .92rem; }
+
+  .hero { padding: 28px 0 28px; }
+  h1 {
+    font-family: var(--serif); font-weight: 600; font-size: clamp(2.2rem, 7vw, 3.3rem);
+    line-height: 1.08; letter-spacing: -.015em; margin: 0 0 14px;
   }
+  .hero p { color: var(--muted); font-size: 1.1rem; margin: 0; max-width: 34em; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow);
+  }
+
+  .tabs { display: flex; gap: 4px; padding: 6px; background: var(--sunken); border-radius: 14px 14px 0 0; border-bottom: 1px solid var(--line); }
+  .tab {
+    flex: 1; font: inherit; font-weight: 600; font-size: .95rem; color: var(--muted);
+    background: none; border: 0; border-radius: 9px; padding: 10px 6px; cursor: pointer;
+  }
+  .tab[aria-selected="true"] { background: var(--panel); color: var(--ink); box-shadow: 0 1px 3px rgb(23 33 31 / 12%); }
+  .tab-body { padding: 20px; }
+
+  .drop {
+    display: block; width: 100%; text-align: center; padding: 34px 16px; cursor: pointer;
+    border: 1.5px dashed var(--line); border-radius: 10px; background: none; color: inherit; font: inherit;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .drop strong { display: block; font-size: 1.05rem; }
+  .drop span { color: var(--muted); font-size: .92rem; }
+
+  label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+  input[type=url], textarea {
+    width: 100%; font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 9px; padding: 12px;
+  }
+  textarea { min-height: 170px; resize: vertical; }
+  .hint { color: var(--muted); font-size: .9rem; margin: 8px 0 0; }
+
+  button.primary, button.secondary {
+    font: inherit; font-weight: 650; padding: 12px 22px; border-radius: 9px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+  button.secondary { background: none; color: var(--ink); border: 1px solid var(--line); }
+  button.secondary:hover { border-color: var(--muted); }
+  button:disabled { opacity: .5; cursor: default; }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+  .notice { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
+  .sample {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    margin-top: 16px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 14px;
+  }
+  .sample p { margin: 0; }
+  .sample small { color: var(--muted); font-size: .9rem; display: block; }
+  .error { color: var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 10px 12px; margin: 14px 0 0; }
+
+  .loading { text-align: center; padding: 56px 20px; margin-top: 8px; }
+  .spinner {
+    width: 40px; height: 40px; margin: 0 auto 18px; border-radius: 50%;
+    border: 3px solid var(--accent-soft); border-top-color: var(--accent); animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading h2 { font-family: var(--serif); font-weight: 600; font-size: 1.5rem; margin: 0 0 6px; }
+  .loading p { color: var(--muted); margin: 0; }
+
+  .quiz { padding: 22px 20px 20px; margin-top: 8px; }
+  .count { color: var(--muted); font-size: .9rem; font-weight: 600; display: flex; justify-content: space-between; }
+  .bar { height: 6px; background: var(--sunken); border-radius: 3px; margin: 8px 0 22px; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); width: 0; transition: width .25s ease; }
   fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
-  legend { font-weight: 600; padding: 0; margin-bottom: 12px; }
-  label {
-    display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 8px;
-    border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  legend {
+    font-family: var(--serif); font-size: 1.32rem; line-height: 1.32; font-weight: 600;
+    padding: 0; margin-bottom: 16px; display: block; width: 100%;
   }
-  label:has(input:checked) { border-color: var(--accent); }
-  input[type=radio] { margin-top: 5px; accent-color: var(--accent); }
-  button {
-    font: inherit; font-weight: 600; padding: 11px 20px; border: 0; border-radius: 8px;
-    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  label.option {
+    display: flex; gap: 12px; align-items: flex-start; padding: 13px 14px; margin-bottom: 9px;
+    border: 1.5px solid var(--line); border-radius: 10px; cursor: pointer;
   }
-  button:disabled { opacity: .55; cursor: default; }
-  .note { color: var(--muted); font-size: .92rem; }
-  .error { color: var(--bad); margin: 12px 0 0; }
-  .score { font-size: 1.5rem; font-weight: 700; margin: 0; }
-  .verdict { font-weight: 600; margin: 0 0 6px; }
-  .right { border-left: 4px solid var(--good); }
+  label.option:hover { border-color: var(--muted); }
+  label.option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  label.option input { margin: 4px 0 0; accent-color: var(--accent); flex: none; }
+  .nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; }
+  .nav .primary { margin-left: auto; }
+
+  .score { display: flex; gap: 22px; align-items: center; padding: 22px 20px; margin-top: 8px; }
+  .ring { width: 104px; height: 104px; flex: none; }
+  .ring circle { fill: none; stroke-width: 9; }
+  .ring .track { stroke: var(--sunken); }
+  .ring .value { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; }
+  .ring text { fill: var(--ink); font: 650 24px var(--sans); text-anchor: middle; }
+  .score h2 { font-family: var(--serif); font-weight: 600; font-size: 1.6rem; line-height: 1.2; margin: 0 0 4px; }
+  .score p { color: var(--muted); margin: 0; }
+  .result { padding: 16px 20px; margin-top: 12px; border-left: 5px solid var(--line); }
+  .result.right { border-left-color: var(--good); }
+  .result.wrong { border-left-color: var(--bad); }
+  .verdict { font-size: .85rem; font-weight: 700; margin: 0 0 4px; }
   .right .verdict { color: var(--good); }
-  .wrong { border-left: 4px solid var(--bad); }
   .wrong .verdict { color: var(--bad); }
-  .result-q { font-weight: 600; margin: 0 0 8px; }
-  .result-line { margin: 4px 0; }
-  ol { padding-left: 20px; margin: 0; }
-  li { margin-bottom: 6px; }
-  a { color: var(--accent); }
-  footer { color: var(--muted); font-size: .9rem; margin-top: 24px; }
+  .result h3 { font-size: 1rem; line-height: 1.4; margin: 0 0 8px; }
+  .result p.line { margin: 4px 0; font-size: .95rem; }
+  .result p.why { color: var(--muted); font-size: .93rem; margin: 8px 0 0; }
+
+  .how { margin: 44px 0 0; }
+  .how h2 { font-family: var(--serif); font-weight: 600; font-size: 1.5rem; margin: 0 0 14px; }
+  .steps { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .steps li { counter-increment: step; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; }
+  .steps li::before {
+    content: counter(step); display: inline-grid; place-items: center; width: 24px; height: 24px;
+    border-radius: 50%; background: var(--accent-soft); color: var(--accent-strong);
+    font-size: .82rem; font-weight: 700; margin-bottom: 8px;
+  }
+  .steps strong { display: block; }
+  .steps span { color: var(--muted); font-size: .93rem; }
+  footer { color: var(--muted); font-size: .9rem; padding: 32px 0 44px; }
+
+  @media (max-width: 520px) {
+    .steps { grid-template-columns: 1fr; }
+    .score { flex-direction: column; text-align: center; }
+    .tab { font-size: .88rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spinner { animation-duration: 3s; }
+    .bar span { transition: none; }
+  }
 </style>
 </head>
 <body>
-<main>
-  <h1>Enablement Coach</h1>
-  <p class="lead">Turns study notes into a short quiz, then scores it and explains each answer.
-    This early version has one built-in topic.</p>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><img src="/favicon.svg" alt=""><span>Enablement Coach</span></div>
+    <a href="https://github.com/deveshh-singh/gcp-enablement-coach">Source code</a>
+  </header>
 
-  <section class="card" id="start">
-    <h2>Google Cloud Basics</h2>
-    <p class="note">Five questions, written by Gemini from a set of study notes. Writing them can take up to a minute.</p>
-    <button id="start-button" type="button">Start the quiz</button>
-    <p class="error" id="start-error" role="alert" hidden></p>
-  </section>
+  <main>
+    <section id="start-view">
+      <div class="hero">
+        <h1>Find out what you really took in.</h1>
+        <p>Give it a document, a web page or your own notes. Gemini writes five questions from it, then you see your score and an explanation for each answer.</p>
+      </div>
 
-  <form id="quiz" hidden>
-    <div id="questions"></div>
-    <button id="submit-button" type="submit">See my score</button>
-    <p class="error" id="quiz-error" role="alert" hidden></p>
-  </form>
+      <div class="panel">
+        <div class="tabs" role="tablist" aria-label="Choose your material">
+          <button class="tab" role="tab" id="tab-file" aria-controls="body-file" aria-selected="true" type="button">Upload a file</button>
+          <button class="tab" role="tab" id="tab-link" aria-controls="body-link" aria-selected="false" type="button" tabindex="-1">Paste a link</button>
+          <button class="tab" role="tab" id="tab-text" aria-controls="body-text" aria-selected="false" type="button" tabindex="-1">Paste text</button>
+        </div>
 
-  <section id="results" hidden>
-    <div class="card"><p class="score" id="score" tabindex="-1"></p></div>
-    <div id="result-list"></div>
-    <button id="again-button" type="button">Try another quiz</button>
-  </section>
+        <div class="tab-body" id="body-file" role="tabpanel" aria-labelledby="tab-file">
+          <input id="file-input" type="file" accept=".pdf,.docx,.txt,.md" hidden>
+          <button class="drop" id="drop" type="button">
+            <strong id="drop-title">Choose a file, or drop it here</strong>
+            <span id="drop-note">PDF, Word (.docx), .txt or .md, up to 5 MB</span>
+          </button>
+        </div>
 
-  <section class="card" style="margin-top:32px">
-    <h2>How it works</h2>
-    <ol>
-      <li>The server sends the study notes to Gemini on Google Cloud and asks for questions in a fixed format.</li>
-      <li>Code checks every question: four different options, and the answer must be one of them. It tries again if too few pass.</li>
-      <li>The answers stay on the server until you submit, and your score is worked out by code, not by the model.</li>
-      <li>A daily limit on model calls keeps the running cost under control.</li>
-    </ol>
-  </section>
+        <form class="tab-body" id="body-link" role="tabpanel" aria-labelledby="tab-link" hidden>
+          <label class="field" for="link-input">Link to a public page</label>
+          <input id="link-input" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/article">
+          <p class="hint">A job posting, documentation or an article. Pages behind a login can't be read.</p>
+          <div class="actions"><button class="primary" type="submit">Make my quiz</button></div>
+        </form>
 
-  <footer><a href="https://github.com/deveshh-singh/gcp-enablement-coach">Source code on GitHub</a></footer>
-</main>
+        <form class="tab-body" id="body-text" role="tabpanel" aria-labelledby="tab-text" hidden>
+          <label class="field" for="text-input">Your text</label>
+          <textarea id="text-input" placeholder="Paste at least a few sentences."></textarea>
+          <div class="actions"><button class="primary" type="submit">Make my quiz</button></div>
+        </form>
+
+        <p class="error" id="start-error" role="alert" style="margin:0 20px 20px" hidden></p>
+        <p class="notice">This app doesn't save your document. It's sent to Gemini to write the questions, and the quiz is kept for up to an hour so it can be marked. Please don't upload anything confidential.</p>
+      </div>
+
+      <div class="sample">
+        <p>No document to hand?<small>Try a quiz on Google Cloud basics.</small></p>
+        <button class="secondary" id="sample-button" type="button">Try the sample</button>
+      </div>
+    </section>
+
+    <section id="loading-view" class="panel loading" hidden aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <h2 id="loading-title">Writing your questions</h2>
+      <p>This usually takes under a minute.</p>
+    </section>
+
+    <section id="quiz-view" hidden>
+      <form class="panel quiz" id="quiz-form">
+        <div class="count"><span id="count-text"></span></div>
+        <div class="bar" aria-hidden="true"><span id="bar"></span></div>
+        <div id="question-holder"></div>
+        <div class="nav">
+          <button class="secondary" id="back-button" type="button">Back</button>
+          <button class="primary" id="next-button" type="submit">Next</button>
+        </div>
+        <p class="error" id="quiz-error" role="alert" hidden></p>
+      </form>
+    </section>
+
+    <section id="results-view" hidden>
+      <div class="panel score">
+        <svg class="ring" viewBox="0 0 104 104" role="img" id="ring">
+          <circle class="track" cx="52" cy="52" r="44"></circle>
+          <circle class="value" id="ring-value" cx="52" cy="52" r="44"></circle>
+          <text x="52" y="61" id="ring-text"></text>
+        </svg>
+        <div>
+          <h2 id="score-title" tabindex="-1"></h2>
+          <p id="score-note"></p>
+        </div>
+      </div>
+      <div id="result-list"></div>
+      <div class="actions"><button class="primary" id="again-button" type="button">Make another quiz</button></div>
+    </section>
+
+    <section class="how" id="how">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li><strong>Gemini reads your material</strong><span>Links are fetched by Gemini on Google Cloud, not by this app's server.</span></li>
+        <li><strong>Gemini writes the questions</strong><span>It's told to use only your material and to answer in a fixed format.</span></li>
+        <li><strong>Code checks every question</strong><span>Four different options, one of them correct. If too few pass, it tries again.</span></li>
+        <li><strong>Code marks your answers</strong><span>Answers stay on the server until you submit. The model plays no part in your score.</span></li>
+      </ol>
+    </section>
+  </main>
+
+  <footer>An early version, with no accounts yet. A daily limit keeps the running cost under control.</footer>
+</div>
 
 <script>
-  const TOPIC = "google-cloud-basics";
   const $ = (id) => document.getElementById(id);
-  let currentQuiz = null;
+  const MAX_FILE_BYTES = 5 * 1024 * 1024;
+  const VIEWS = ["start-view", "loading-view", "quiz-view", "results-view"];
+  const TABS = ["file", "link", "text"];
+
+  let quiz = null;
+  let answers = [];
+  let current = 0;
 
   function make(tag, className, text) {
     const element = document.createElement(tag);
@@ -111,114 +284,205 @@
     return element;
   }
 
+  function showView(id) {
+    VIEWS.forEach((view) => { $(view).hidden = view !== id; });
+    $("how").hidden = id !== "start-view";
+    window.scrollTo(0, 0);
+  }
+
   function showError(id, message) {
-    $(id).textContent = message;
+    $(id).textContent = message || "";
     $(id).hidden = !message;
   }
 
-  async function post(path, body) {
+  async function send(path, options) {
     let response;
     try {
-      response = await fetch(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      response = await fetch(path, { method: "POST", ...options });
     } catch {
       throw new Error("Couldn't reach the server. Please check your connection and try again.");
     }
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      throw new Error(typeof data.detail === "string" ? data.detail : "Something went wrong. Please try again.");
+      const fallback = response.status === 422
+        ? "Please check what you entered and try again."
+        : "Something went wrong. Please try again.";
+      throw new Error(typeof data.detail === "string" ? data.detail : fallback);
     }
     return data;
   }
 
-  function renderQuiz(quiz) {
-    const holder = $("questions");
-    holder.replaceChildren();
-    quiz.questions.forEach((question, index) => {
-      const card = make("div", "card");
-      const group = make("fieldset");
-      group.append(make("legend", "", `${index + 1}. ${question.question}`));
-      question.options.forEach((option) => {
-        const label = make("label");
-        const radio = make("input");
-        radio.type = "radio";
-        radio.name = `q${index}`;
-        radio.value = option;
-        label.append(radio, make("span", "", option));
-        group.append(label);
-      });
-      card.append(group);
-      holder.append(card);
+  const sendJson = (path, body) => send(path, {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  async function makeQuiz(title, request) {
+    showError("start-error", "");
+    $("loading-title").textContent = title;
+    showView("loading-view");
+    try {
+      quiz = await request();
+      answers = quiz.questions.map(() => null);
+      current = 0;
+      showView("quiz-view");
+      renderQuestion();
+    } catch (error) {
+      showView("start-view");
+      showError("start-error", error.message);
+    }
+  }
+
+  function renderQuestion() {
+    const total = quiz.questions.length;
+    const question = quiz.questions[current];
+    $("count-text").textContent = `Question ${current + 1} of ${total}`;
+    $("bar").style.width = `${((current + 1) / total) * 100}%`;
+    $("back-button").hidden = current === 0;
+    $("next-button").textContent = current === total - 1 ? "See my score" : "Next";
+    showError("quiz-error", "");
+
+    const group = make("fieldset");
+    const legend = make("legend", "", question.question);
+    legend.tabIndex = -1;
+    group.append(legend);
+    question.options.forEach((option) => {
+      const label = make("label", "option");
+      const radio = make("input");
+      radio.type = "radio";
+      radio.name = "answer";
+      radio.value = option;
+      radio.checked = answers[current] === option;
+      radio.addEventListener("change", () => { answers[current] = option; updateNext(); });
+      label.append(radio, make("span", "", option));
+      group.append(label);
     });
+    $("question-holder").replaceChildren(group);
+    updateNext();
+    legend.focus({ preventScroll: true });
+  }
+
+  function updateNext() {
+    $("next-button").disabled = answers[current] === null;
+  }
+
+  function scoreNote(score, total) {
+    if (score === total) return "Every answer right.";
+    if (score / total >= 0.6) return "A solid result. The notes below cover the rest.";
+    return "The explanations below are the best place to start.";
   }
 
   function renderResults(result) {
-    $("score").textContent = `You scored ${result.score} out of ${result.total}`;
-    const holder = $("result-list");
-    holder.replaceChildren();
-    result.results.forEach((item) => {
-      const card = make("div", `card ${item.correct ? "right" : "wrong"}`);
+    const circumference = 2 * Math.PI * 44;
+    const share = result.total ? result.score / result.total : 0;
+    $("ring-value").style.strokeDasharray = `${circumference * share} ${circumference}`;
+    $("ring-text").textContent = `${result.score}/${result.total}`;
+    $("ring").setAttribute("aria-label", `${result.score} out of ${result.total}`);
+    $("score-title").textContent = `You scored ${result.score} out of ${result.total}`;
+    $("score-note").textContent = scoreNote(result.score, result.total);
+
+    const cards = result.results.map((item) => {
+      const card = make("article", `panel result ${item.correct ? "right" : "wrong"}`);
       card.append(make("p", "verdict", item.correct ? "Correct" : "Not quite"));
-      card.append(make("p", "result-q", item.question));
+      card.append(make("h3", "", item.question));
       if (!item.correct) {
-        card.append(make("p", "result-line", `Your answer: ${item.your_answer ?? "Not answered"}`));
-        card.append(make("p", "result-line", `Correct answer: ${item.correct_answer}`));
+        card.append(make("p", "line", `Your answer: ${item.your_answer ?? "Not answered"}`));
+        card.append(make("p", "line", `Correct answer: ${item.correct_answer}`));
       }
-      card.append(make("p", "result-line note", item.explanation));
-      holder.append(card);
+      card.append(make("p", "why", item.explanation));
+      return card;
     });
+    $("result-list").replaceChildren(...cards);
   }
 
-  async function startQuiz() {
-    const button = $("start-button");
-    showError("start-error", "");
-    $("results").hidden = true;
-    $("start").hidden = false;
-    button.disabled = true;
-    button.textContent = "Writing your questions…";
+  async function finish() {
+    $("next-button").disabled = true;
     try {
-      currentQuiz = await post("/api/quiz", { topic: TOPIC });
-      renderQuiz(currentQuiz);
-      $("start").hidden = true;
-      $("quiz").hidden = false;
-      window.scrollTo(0, 0);
-    } catch (error) {
-      showError("start-error", error.message);
-    } finally {
-      button.disabled = false;
-      button.textContent = "Start the quiz";
-    }
-  }
-
-  async function submitQuiz(event) {
-    event.preventDefault();
-    const button = $("submit-button");
-    const answers = currentQuiz.questions.map((_, index) => {
-      const chosen = document.querySelector(`input[name="q${index}"]:checked`);
-      return chosen ? chosen.value : null;
-    });
-    showError("quiz-error", "");
-    button.disabled = true;
-    try {
-      const result = await post("/api/grade", { quiz_id: currentQuiz.quiz_id, answers });
+      const result = await sendJson("/api/grade", { quiz_id: quiz.quiz_id, answers });
       renderResults(result);
-      $("quiz").hidden = true;
-      $("results").hidden = false;
-      window.scrollTo(0, 0);
-      $("score").focus({ preventScroll: true });
+      showView("results-view");
+      $("score-title").focus({ preventScroll: true });
     } catch (error) {
       showError("quiz-error", error.message);
-    } finally {
-      button.disabled = false;
+      updateNext();
     }
   }
 
-  $("start-button").addEventListener("click", startQuiz);
-  $("again-button").addEventListener("click", startQuiz);
-  $("quiz").addEventListener("submit", submitQuiz);
+  function selectTab(name, focus) {
+    TABS.forEach((tab) => {
+      const selected = tab === name;
+      $(`tab-${tab}`).setAttribute("aria-selected", String(selected));
+      $(`tab-${tab}`).tabIndex = selected ? 0 : -1;
+      $(`body-${tab}`).hidden = !selected;
+    });
+    showError("start-error", "");
+    if (focus) $(`tab-${name}`).focus();
+  }
+
+  function handleFile(file) {
+    if (!file) return;
+    if (file.size > MAX_FILE_BYTES) {
+      showError("start-error", "That file is too large. The limit is 5 MB.");
+      return;
+    }
+    const form = new FormData();
+    form.append("file", file);
+    makeQuiz("Reading your file", () => send("/api/quiz/file", { body: form }));
+    $("file-input").value = "";
+  }
+
+  TABS.forEach((name, index) => {
+    const tab = $(`tab-${name}`);
+    tab.addEventListener("click", () => selectTab(name));
+    tab.addEventListener("keydown", (event) => {
+      const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+      if (!step) return;
+      event.preventDefault();
+      selectTab(TABS[(index + step + TABS.length) % TABS.length], true);
+    });
+  });
+
+  const drop = $("drop");
+  drop.addEventListener("click", () => $("file-input").click());
+  $("file-input").addEventListener("change", (event) => handleFile(event.target.files[0]));
+  ["dragenter", "dragover"].forEach((type) => drop.addEventListener(type, (event) => {
+    event.preventDefault();
+    drop.classList.add("over");
+  }));
+  ["dragleave", "drop"].forEach((type) => drop.addEventListener(type, (event) => {
+    event.preventDefault();
+    drop.classList.remove("over");
+  }));
+  drop.addEventListener("drop", (event) => handleFile(event.dataTransfer.files[0]));
+
+  $("body-link").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const link = $("link-input").value.trim();
+    if (!link) return showError("start-error", "Please paste a link first.");
+    makeQuiz("Reading the page", () => sendJson("/api/quiz/link", { link }));
+  });
+
+  $("body-text").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = $("text-input").value;
+    if (!text.trim()) return showError("start-error", "Please paste some text first.");
+    makeQuiz("Writing your questions", () => sendJson("/api/quiz/text", { text }));
+  });
+
+  $("sample-button").addEventListener("click", () => {
+    makeQuiz("Writing your questions", () => sendJson("/api/quiz", { topic: "google-cloud-basics" }));
+  });
+
+  $("quiz-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (answers[current] === null) return;
+    if (current === quiz.questions.length - 1) return finish();
+    current += 1;
+    renderQuestion();
+  });
+
+  $("back-button").addEventListener("click", () => { current -= 1; renderQuestion(); });
+  $("again-button").addEventListener("click", () => showView("start-view"));
 </script>
 </body>
 </html>

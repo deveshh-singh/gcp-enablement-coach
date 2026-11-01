@@ -1,6 +1,6 @@
 """Quiz logic: validate what the model wrote, limit model calls, grade in code.
 
-Nothing here talks to Google. The model call is passed in as `generate`, so the
+Nothing here talks to Google. The model call and the budget are passed in, so the
 tests can run without a network connection or any cloud account.
 """
 from __future__ import annotations
@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+from app.budget import Budget, MemoryBudget
+
 logger = logging.getLogger("coach")
 
 TOPICS_DIR = Path(__file__).parent / "topics"
@@ -26,9 +28,9 @@ TOPICS = {
 }
 
 QUESTIONS_PER_QUIZ = 5
-SECONDS_PER_DAY = 86_400
+CUSTOM = "custom"
 
-Generate = Callable[[str, str, int], list[dict]]
+Write = Callable[[str, str, int], list[dict]]
 
 
 class TopicNotFound(Exception):
@@ -37,6 +39,10 @@ class TopicNotFound(Exception):
 
 class DailyLimitReached(Exception):
     """The day's budget of model calls has been used."""
+
+
+class VisitorLimitReached(Exception):
+    """One visitor has made too many quizzes from their own material."""
 
 
 class NoValidQuiz(Exception):
@@ -53,11 +59,11 @@ class WrongAnswerCount(Exception):
 
 @dataclass(frozen=True)
 class Limits:
-    daily_model_calls: int = 200
     cooldown_seconds: int = 30
     attempts_per_quiz: int = 3
     quiz_lifetime_seconds: int = 3_600
     max_stored_quizzes: int = 500
+    visitor_quizzes_per_hour: int = 6
 
 
 def problems_with(question: dict) -> list[str]:
@@ -103,50 +109,77 @@ def keep_valid(questions: list[dict]) -> list[dict]:
 class Coach:
     def __init__(
         self,
-        generate: Generate,
+        write: Write,
+        budget: Budget | None = None,
         limits: Limits = Limits(),
         clock: Callable[[], float] = time.time,
         shuffle: Callable[[list], None] = random.shuffle,
     ):
-        self._generate = generate
+        self._write = write
+        self._budget = budget or MemoryBudget(clock=clock)
         self._limits = limits
         self._clock = clock
         self._shuffle = shuffle
         self._lock = threading.Lock()
+        self._sample_lock = threading.Lock()
         self._quizzes: OrderedDict[str, dict] = OrderedDict()
         self._latest: dict[str, str] = {}
-        self._calls_today = 0
-        self._day = self._today()
-
-    def _today(self) -> int:
-        return int(self._clock() // SECONDS_PER_DAY)
+        self._visitors: dict[str, list[float]] = {}
 
     def topics(self) -> list[dict]:
         return [{"id": key, "title": t["title"]} for key, t in TOPICS.items()]
 
+    def spend_call(self) -> None:
+        """Pay for one model call, or stop if today's budget is used."""
+        if not self._budget.spend():
+            raise DailyLimitReached()
+
+    def check_visitor(self, visitor: str) -> None:
+        """Allow a limited number of quizzes per visitor per hour.
+
+        This is held in memory, so it resets on a restart. The daily budget is the
+        limit that protects the cost; this one stops one visitor using all of it.
+        """
+        now = self._clock()
+        with self._lock:
+            recent = [t for t in self._visitors.get(visitor, []) if now - t < 3_600]
+            if len(recent) >= self._limits.visitor_quizzes_per_hour:
+                self._visitors[visitor] = recent
+                raise VisitorLimitReached()
+            recent.append(now)
+            self._visitors[visitor] = recent
+            if len(self._visitors) > 5_000:
+                self._visitors.clear()
+
     def new_quiz(self, topic: str) -> dict:
-        """Return a quiz for players. It never includes answers."""
+        """Return a quiz on a built-in topic. It never includes answers."""
         if topic not in TOPICS:
             raise TopicNotFound(topic)
 
-        # One lock means one model call at a time. Anyone else waiting then
+        # One model call at a time for the sample topic. Anyone else waiting then
         # receives the quiz that call produced, which is what keeps a burst of
         # visitors from turning into a burst of model calls.
-        with self._lock:
-            self._forget_expired()
-            latest = self._quizzes.get(self._latest.get(topic, ""))
-            age = self._clock() - latest["created"] if latest else None
-            if latest and age < self._limits.cooldown_seconds:
-                return self._public(self._latest[topic], latest)
+        with self._sample_lock:
+            with self._lock:
+                self._forget_expired()
+                latest = self._quizzes.get(self._latest.get(topic, ""))
+                age = self._clock() - latest["created"] if latest else None
+                if latest and age < self._limits.cooldown_seconds:
+                    return self._public(self._latest[topic], latest)
 
-            questions = self._write_questions(topic)
-            quiz_id = uuid.uuid4().hex
-            quiz = {"topic": topic, "questions": questions, "created": self._clock()}
-            self._quizzes[quiz_id] = quiz
-            self._latest[topic] = quiz_id
-            while len(self._quizzes) > self._limits.max_stored_quizzes:
-                self._quizzes.popitem(last=False)
-            return self._public(quiz_id, quiz)
+            pack = (TOPICS_DIR / TOPICS[topic]["file"]).read_text(encoding="utf-8")
+            questions = self._write_questions(TOPICS[topic]["title"], pack)
+            quiz_id = self._store(topic, questions)
+            with self._lock:
+                self._latest[topic] = quiz_id
+                return self._public(quiz_id, self._quizzes[quiz_id])
+
+    def quiz_from_material(self, material: str, title: str = "the material provided") -> dict:
+        """Return a quiz on a visitor's own material. The material is not kept."""
+        questions = self._write_questions(title, material)
+        quiz_id = self._store(CUSTOM, questions)
+        with self._lock:
+            return self._public(quiz_id, self._quizzes[quiz_id])
 
     def grade(self, quiz_id: str, answers: list[str | None]) -> dict:
         """Mark the answers by comparing text. The model plays no part in this."""
@@ -177,29 +210,31 @@ class Coach:
             "results": results,
         }
 
-    def _write_questions(self, topic: str) -> list[dict]:
-        pack = (TOPICS_DIR / TOPICS[topic]["file"]).read_text(encoding="utf-8")
+    def _write_questions(self, title: str, material: str) -> list[dict]:
         for attempt in range(1, self._limits.attempts_per_quiz + 1):
-            self._spend_one_call()
-            valid = keep_valid(self._generate(TOPICS[topic]["title"], pack, QUESTIONS_PER_QUIZ))
+            self.spend_call()
+            valid = keep_valid(self._write(title, material, QUESTIONS_PER_QUIZ))
             if len(valid) >= QUESTIONS_PER_QUIZ:
                 chosen = valid[:QUESTIONS_PER_QUIZ]
                 for question in chosen:
                     question["options"] = list(question["options"])
                     self._shuffle(question["options"])
-                logger.info("quiz written on attempt %s; %s calls today", attempt, self._calls_today)
+                logger.info("quiz written on attempt %s", attempt)
                 return chosen
             logger.warning("attempt %s gave %s valid questions", attempt, len(valid))
-        raise NoValidQuiz(topic)
+        raise NoValidQuiz(title)
 
-    def _spend_one_call(self) -> None:
-        today = self._today()
-        if today != self._day:
-            self._day = today
-            self._calls_today = 0
-        if self._calls_today >= self._limits.daily_model_calls:
-            raise DailyLimitReached()
-        self._calls_today += 1
+    def _store(self, topic: str, questions: list[dict]) -> str:
+        quiz_id = uuid.uuid4().hex
+        with self._lock:
+            self._quizzes[quiz_id] = {
+                "topic": topic,
+                "questions": questions,
+                "created": self._clock(),
+            }
+            while len(self._quizzes) > self._limits.max_stored_quizzes:
+                self._quizzes.popitem(last=False)
+        return quiz_id
 
     def _forget_expired(self) -> None:
         oldest_allowed = self._clock() - self._limits.quiz_lifetime_seconds

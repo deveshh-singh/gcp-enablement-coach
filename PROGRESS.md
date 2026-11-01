@@ -11,7 +11,13 @@
 - Live checks passed: a full quiz in a browser at phone width, no answers sent before
   submission, repeat requests inside the cooldown sharing one model call.
 
+## Your own material
+- Quizzes from an uploaded file (PDF, Word, TXT, Markdown), a link or pasted text.
+- Links use Gemini's URL context tool, so this server never fetches them.
+- The daily budget moved to Firestore, so a restart can't reset it.
+- A new page: one question at a time, drag-and-drop upload and a score screen.
+
 ## Next
-- Sign-in, per-user limits and a persistent daily counter.
-- Chat grounded in the topic notes.
+- Sign-in and per-user limits.
+- Chat grounded in the material.
 - A custom domain.
