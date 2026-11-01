@@ -82,6 +82,8 @@ def friendly_errors():
         raise HTTPException(415, "Please use a PDF, Word (.docx), .txt or .md file.")
     except sources.BadLink:
         raise HTTPException(422, "That doesn't look like a public web address.")
+    except sources.ModelBusy:
+        raise HTTPException(503, "Google's AI service is busy right now. Please try again in a minute.")
     except sources.Unreadable:
         raise HTTPException(422, "Couldn't read that. Some sites block automated reading, so try copying the text and pasting it instead.")
     except VisitorLimitReached:

@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from google.genai import errors
 
 from app.budget import MemoryBudget
 from app.coach import (
@@ -14,8 +15,9 @@ from app.coach import (
     keep_valid,
     problems_with,
 )
+from app.gemini import Gemini
 from app.main import HEALTH_PATH, create_app
-from app.sources import Unreadable
+from app.sources import ModelBusy, Unreadable
 
 TOPIC = "google-cloud-basics"
 LONG_TEXT = "Service accounts give workloads an identity of their own. " * 10
@@ -586,3 +588,69 @@ def test_grading_reports_the_job_and_sources():
     coach = make_coach(preparer=FakePreparer())
     quiz = coach.quiz_from_material(LONG_TEXT)
     assert coach.grade(quiz["quiz_id"], ["B"] * 5)["job"]["role"] == "AI Engineer"
+
+
+class BusyThen:
+    """Stands in for a Gemini client that is busy a set number of times."""
+
+    def __init__(self, busy_times, code=429):
+        self.busy_times = busy_times
+        self.code = code
+        self.calls = 0
+        self.models = self
+
+    def generate_content(self, **_):
+        self.calls += 1
+        if self.calls <= self.busy_times:
+            raise errors.ClientError(self.code, {"error": {"code": self.code, "message": "x", "status": "x"}})
+        return "reply"
+
+
+def gemini_with(home, fallback):
+    waits = []
+    gemini = Gemini(sleep=waits.append)
+    gemini._clients = {"asia-south1": home, "global": fallback}
+    return gemini, waits
+
+
+def test_gemini_retries_when_busy(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    home, fallback = BusyThen(1), BusyThen(0)
+    gemini, waits = gemini_with(home, fallback)
+    assert gemini._generate("hi") == "reply"
+    assert (home.calls, fallback.calls, len(waits)) == (2, 0, 1)
+
+
+def test_gemini_moves_to_the_global_endpoint_when_the_region_stays_busy(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    home, fallback = BusyThen(9), BusyThen(0)
+    gemini, _ = gemini_with(home, fallback)
+    assert gemini._generate("hi") == "reply"
+    assert (home.calls, fallback.calls) == (2, 1)
+
+
+def test_gemini_gives_up_after_every_retry(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    gemini, _ = gemini_with(BusyThen(9), BusyThen(9))
+    with pytest.raises(ModelBusy):
+        gemini._generate("hi")
+
+
+def test_real_errors_are_not_retried(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    home, fallback = BusyThen(9, code=403), BusyThen(0)
+    gemini, _ = gemini_with(home, fallback)
+    with pytest.raises(errors.ClientError):
+        gemini._generate("hi")
+    assert (home.calls, fallback.calls) == (1, 0)
+
+
+def test_busy_model_gets_a_clear_message(writer):
+    class BusyReader(FakeReader):
+        def read_link(self, link):
+            raise ModelBusy()
+
+    client = TestClient(create_app(make_coach(writer), BusyReader()), raise_server_exceptions=False)
+    response = client.post("/api/quiz/link", json={"link": "example.com"})
+    assert response.status_code == 503
+    assert "busy" in response.json()["detail"]

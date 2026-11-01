@@ -33,6 +33,9 @@ Cloud Run service "coach-api" (FastAPI, asia-south1), runs as a service account
 - **Pages can read differently each time.** Pages built by scripts can return nothing,
   part of the page or all of it. The app tries twice, keeps the longest result, and
   then asks Google Search for the page.
+- **Busy spells are expected.** When Google has no capacity, the app waits and retries,
+  then moves from the India region to Google's global endpoint, where processing may
+  happen outside India. Other errors aren't retried.
 - **Answers stay on the server** until the quiz is submitted, and marking compares text
   in code. The model plays no part in the score.
 - **This server never fetches a link.** Gemini's URL context tool reads the page on

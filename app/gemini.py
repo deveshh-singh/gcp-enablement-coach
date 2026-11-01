@@ -2,17 +2,27 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
+from typing import Callable
 
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from pydantic import BaseModel
 
-from app.sources import Unreadable
+from app.sources import ModelBusy, Unreadable
+
+logger = logging.getLogger("coach")
 
 MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 TIMEOUT_MS = 90_000
 UNREADABLE = "UNREADABLE"
+
+# 429 and 503 mean Google has no capacity right now, not that the request is wrong.
+BUSY_CODES = (429, 503)
+FALLBACK_LOCATION = "global"
+RETRY_WAIT_SECONDS = 3
 
 
 class Question(BaseModel):
@@ -124,24 +134,45 @@ class Gemini:
     """The client is built on first use, so importing this file needs no cloud
     credentials."""
 
-    def __init__(self) -> None:
-        self._client: genai.Client | None = None
+    def __init__(self, sleep: Callable[[float], None] = time.sleep) -> None:
+        self._clients: dict[str, genai.Client] = {}
+        self._sleep = sleep
 
-    def _get_client(self) -> genai.Client:
-        if self._client is None:
-            self._client = genai.Client(
+    def _client_for(self, location: str) -> genai.Client:
+        if location not in self._clients:
+            self._clients[location] = genai.Client(
                 vertexai=True,
                 project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
-                location=os.environ.get("GOOGLE_CLOUD_LOCATION", "asia-south1"),
+                location=location,
                 http_options=types.HttpOptions(timeout=TIMEOUT_MS),
             )
-        return self._client
+        return self._clients[location]
+
+    def _generate(self, contents, config: types.GenerateContentConfig | None = None):
+        """Call Gemini, riding out short spells when Google has no capacity.
+
+        Try the home region twice, then the global endpoint, which draws on more
+        capacity. Only a busy reply is retried: any other error is a real problem,
+        and repeating it would just hide that.
+        """
+        home = os.environ.get("GOOGLE_CLOUD_LOCATION", "asia-south1")
+        for attempt, location in enumerate((home, home, FALLBACK_LOCATION, FALLBACK_LOCATION)):
+            if attempt:
+                self._sleep(RETRY_WAIT_SECONDS)
+            try:
+                return self._client_for(location).models.generate_content(
+                    model=MODEL, contents=contents, config=config
+                )
+            except errors.APIError as error:
+                if error.code not in BUSY_CODES:
+                    raise
+                logger.warning("Gemini busy in %s (attempt %s)", location, attempt + 1)
+        raise ModelBusy()
 
     def _structured(self, prompt: str, schema: type[BaseModel]) -> dict:
-        response = self._get_client().models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
+        response = self._generate(
+            prompt,
+            types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=schema,
             ),
@@ -160,10 +191,9 @@ class Gemini:
         return self._structured(ANALYSE_PROMPT.format(material=material), Analysis)
 
     def _search(self, prompt: str):
-        return self._get_client().models.generate_content(
-            model=MODEL,
-            contents=prompt,
-            config=types.GenerateContentConfig(
+        return self._generate(
+            prompt,
+            types.GenerateContentConfig(
                 tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
@@ -190,10 +220,9 @@ class Gemini:
 
     def read_link(self, link: str) -> str:
         """Ask Gemini to fetch the page. This server never contacts the link."""
-        response = self._get_client().models.generate_content(
-            model=MODEL,
-            contents=READ_LINK_PROMPT.format(link=link),
-            config=types.GenerateContentConfig(
+        response = self._generate(
+            READ_LINK_PROMPT.format(link=link),
+            types.GenerateContentConfig(
                 tools=[types.Tool(url_context=types.UrlContext())],
             ),
         )
@@ -203,12 +232,8 @@ class Gemini:
         return self._readable(response.text, fetched)
 
     def read_pdf(self, data: bytes) -> str:
-        response = self._get_client().models.generate_content(
-            model=MODEL,
-            contents=[
-                types.Part.from_bytes(data=data, mime_type="application/pdf"),
-                READ_PDF_PROMPT,
-            ],
+        response = self._generate(
+            [types.Part.from_bytes(data=data, mime_type="application/pdf"), READ_PDF_PROMPT]
         )
         return self._readable(response.text, True)
 

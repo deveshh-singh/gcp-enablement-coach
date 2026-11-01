@@ -41,6 +41,10 @@ class Unreadable(Exception):
     """The page or file couldn't be read."""
 
 
+class ModelBusy(Exception):
+    """Gemini stayed busy through every retry."""
+
+
 def clean_material(text: str) -> str:
     """Tidy visitor text, cap its length and check there is enough to use."""
     cleaned = text.replace("\x00", "")

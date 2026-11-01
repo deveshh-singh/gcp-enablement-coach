@@ -24,6 +24,10 @@
   1 full result from 5 tries of the same address, so the app now retries and falls back
   to search.
 
+## Busy spells
+- A live link failed with 429 RESOURCE_EXHAUSTED while later calls succeeded, so Gemini
+  calls now retry and then fall back to the global endpoint.
+
 ## Next
 - Sign-in and per-user limits.
 - Chat grounded in the material.
