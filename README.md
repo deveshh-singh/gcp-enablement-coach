@@ -3,6 +3,8 @@
 Turns study notes into a short quiz, then scores it and explains each answer. Gemini
 writes the questions on Google Cloud, code checks them, and code does the marking.
 
+**Try it:** https://coach-api-391985624624.asia-south1.run.app
+
 This is an early version with one built-in topic, Google Cloud Basics. The longer-term
 aim is to turn any team's documents into quizzes and practice conversations.
 
