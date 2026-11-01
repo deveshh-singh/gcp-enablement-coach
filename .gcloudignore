@@ -12,3 +12,5 @@ requirements-dev.txt
 PROGRESS.md
 README.md
 .DS_Store
+.wrangler/
+wrangler.jsonc

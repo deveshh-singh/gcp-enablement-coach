@@ -28,7 +28,15 @@
 - A live link failed with 429 RESOURCE_EXHAUSTED while later calls succeeded, so Gemini
   calls now retry and then fall back to the global endpoint.
 
+## Own address
+- The page is on Cloudflare at coach.devesh-singh.com, as static files on Workers, because
+  Wrangler now sends Pages publishing there. The API stays on Cloud Run.
+- The browser calls Cloud Run directly. A Cloudflare proxy would give up after 125 seconds
+  and would hide each visitor's address from the per-visitor limits.
+- CORS lets only that site call the API from a browser. It doesn't stop other programs.
+- Google's domain mapping isn't listed for `asia-south1`.
+- Page changes need both deploys: `npx wrangler@4 deploy` and `gcloud run deploy`.
+
 ## Next
 - Sign-in and per-user limits.
 - Chat grounded in the material.
-- A custom domain.

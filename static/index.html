@@ -315,10 +315,15 @@
     $(id).hidden = !message;
   }
 
+  // On the public site the API is at another address. Elsewhere it's this one.
+  const API = location.hostname === "coach.devesh-singh.com"
+    ? "https://coach-api-391985624624.asia-south1.run.app"
+    : "";
+
   async function send(path, options) {
     let response;
     try {
-      response = await fetch(path, { method: "POST", ...options });
+      response = await fetch(API + path, { method: "POST", ...options });
     } catch {
       throw new Error("Couldn't reach the server. Please check your connection and try again.");
     }

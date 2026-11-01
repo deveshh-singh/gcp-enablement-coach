@@ -4,7 +4,7 @@ Turns a document, a web page or your own notes into a five-question quiz. Give i
 job posting and it researches the key skills instead, so you can practise for the role.
 Gemini writes the questions on Google Cloud, code checks them, and code does the marking.
 
-**Try it:** https://coach-api-391985624624.asia-south1.run.app
+**Try it:** https://coach.devesh-singh.com
 
 This is an early version with no accounts. The longer-term aim is to turn any team's
 documents into quizzes and practice conversations.
@@ -12,9 +12,9 @@ documents into quizzes and practice conversations.
 ## How it works
 
 ```
-Browser: upload a file, paste a link, paste text, or try the sample
-   │
-   ▼
+Page on Cloudflare (coach.devesh-singh.com): upload a file, paste a link, paste text,
+   │  or try the sample
+   ▼  the browser calls the API directly; CORS lets only this site in
 Cloud Run service "coach-api" (FastAPI, asia-south1), runs as a service account
    ├─► Gemini on Google Cloud: reads PDFs and links, spots job postings, researches
    │     their key skills with Google Search, then writes the questions

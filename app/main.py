@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -32,6 +33,11 @@ STATIC = Path(__file__).parent.parent / "static"
 
 # Cloud Run reserves some paths ending in "z", so the health check is not /healthz.
 HEALTH_PATH = "/api/health"
+
+# The public page is on Cloudflare Pages and calls this service directly, so a slow
+# quiz doesn't hit Cloudflare's time limit and visitors keep their own addresses.
+PUBLIC_SITE = "https://coach.devesh-singh.com"
+CLOUD_RUN_URL = "https://coach-api-391985624624.asia-south1.run.app"
 
 
 class Reader(Protocol):
@@ -120,6 +126,14 @@ def create_app(coach: Coach | None = None, reader: Reader | None = None) -> Fast
             "script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'"
         )
         return response
+
+    # Browsers let only this site call the API from another address.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[PUBLIC_SITE],
+        allow_methods=["GET", "POST"],
+        allow_headers=["content-type"],
+    )
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:

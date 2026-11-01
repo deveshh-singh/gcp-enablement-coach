@@ -1,0 +1,10 @@
+// The public page: static files on Cloudflare, at coach.devesh-singh.com.
+// The API stays on Cloud Run. Publish with: npx wrangler@4 deploy
+{
+  "name": "enablement-coach",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./static" },
+  "routes": [{ "pattern": "coach.devesh-singh.com", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false
+}

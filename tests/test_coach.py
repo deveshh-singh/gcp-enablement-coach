@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from google.genai import errors
@@ -16,7 +18,7 @@ from app.coach import (
     problems_with,
 )
 from app.gemini import Gemini
-from app.main import HEALTH_PATH, create_app
+from app.main import CLOUD_RUN_URL, HEALTH_PATH, create_app
 from app.sources import ModelBusy, Unreadable
 
 TOPIC = "google-cloud-basics"
@@ -670,3 +672,39 @@ def test_a_timeout_counts_as_busy(monkeypatch):
     gemini, _ = gemini_with(home, BusyThen(0))
     assert gemini._generate("hi") == "reply"
     assert home.calls == 2
+
+
+SITE = "https://coach.devesh-singh.com"
+
+
+def preflight(client, origin):
+    return client.options(
+        "/api/quiz/link",
+        headers={
+            "Origin": origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+
+
+def test_the_public_site_may_call_the_api(client):
+    response = preflight(client, SITE)
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == SITE
+
+
+def test_another_site_may_not_call_the_api(client):
+    response = preflight(client, "https://example.com")
+    assert "access-control-allow-origin" not in response.headers
+
+
+def test_the_browser_may_read_answers_sent_to_the_public_site(client):
+    response = client.get(HEALTH_PATH, headers={"Origin": SITE})
+    assert response.headers["access-control-allow-origin"] == SITE
+
+
+def test_the_site_page_may_talk_to_the_api():
+    static = Path(__file__).parent.parent / "static"
+    assert CLOUD_RUN_URL in (static / "_headers").read_text()
+    assert CLOUD_RUN_URL in (static / "index.html").read_text()
