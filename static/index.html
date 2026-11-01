@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enablement Coach</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f8fa; --card: #ffffff; --text: #1c2430; --muted: #5b6675;
+    --line: #dde2e9; --accent: #1a56c4; --accent-text: #ffffff;
+    --good: #14743f; --good-bg: #e6f4ec; --bad: #a32a2a; --bad-bg: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12161c; --card: #1b2129; --text: #e7ebf0; --muted: #9aa5b2;
+      --line: #303945; --accent: #7fb0ff; --accent-text: #0e1a2e;
+      --good: #6fd39b; --good-bg: #16301f; --bad: #f19a9a; --bad-bg: #3a1c1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 680px; margin: 0 auto; padding: 40px 16px 56px; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 8px; }
+  h2 { font-size: 1.15rem; margin: 0 0 12px; }
+  .lead { color: var(--muted); margin: 0 0 28px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  legend { font-weight: 600; padding: 0; margin-bottom: 12px; }
+  label {
+    display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 8px;
+    border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+  }
+  label:has(input:checked) { border-color: var(--accent); }
+  input[type=radio] { margin-top: 5px; accent-color: var(--accent); }
+  button {
+    font: inherit; font-weight: 600; padding: 11px 20px; border: 0; border-radius: 8px;
+    background: var(--accent); color: var(--accent-text); cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .note { color: var(--muted); font-size: .92rem; }
+  .error { color: var(--bad); margin: 12px 0 0; }
+  .score { font-size: 1.5rem; font-weight: 700; margin: 0; }
+  .verdict { font-weight: 600; margin: 0 0 6px; }
+  .right { border-left: 4px solid var(--good); }
+  .right .verdict { color: var(--good); }
+  .wrong { border-left: 4px solid var(--bad); }
+  .wrong .verdict { color: var(--bad); }
+  .result-q { font-weight: 600; margin: 0 0 8px; }
+  .result-line { margin: 4px 0; }
+  ol { padding-left: 20px; margin: 0; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+  footer { color: var(--muted); font-size: .9rem; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Enablement Coach</h1>
+  <p class="lead">Turns study notes into a short quiz, then scores it and explains each answer.
+    This early version has one built-in topic.</p>
+
+  <section class="card" id="start">
+    <h2>Google Cloud Basics</h2>
+    <p class="note">Five questions, written by Gemini from a set of study notes. Writing them can take up to a minute.</p>
+    <button id="start-button" type="button">Start the quiz</button>
+    <p class="error" id="start-error" role="alert" hidden></p>
+  </section>
+
+  <form id="quiz" hidden>
+    <div id="questions"></div>
+    <button id="submit-button" type="submit">See my score</button>
+    <p class="error" id="quiz-error" role="alert" hidden></p>
+  </form>
+
+  <section id="results" hidden>
+    <div class="card"><p class="score" id="score" tabindex="-1"></p></div>
+    <div id="result-list"></div>
+    <button id="again-button" type="button">Try another quiz</button>
+  </section>
+
+  <section class="card" style="margin-top:32px">
+    <h2>How it works</h2>
+    <ol>
+      <li>The server sends the study notes to Gemini on Google Cloud and asks for questions in a fixed format.</li>
+      <li>Code checks every question: four different options, and the answer must be one of them. It tries again if too few pass.</li>
+      <li>The answers stay on the server until you submit, and your score is worked out by code, not by the model.</li>
+      <li>A daily limit on model calls keeps the running cost under control.</li>
+    </ol>
+  </section>
+
+  <footer><a href="https://github.com/deveshh-singh/gcp-enablement-coach">Source code on GitHub</a></footer>
+</main>
+
+<script>
+  const TOPIC = "google-cloud-basics";
+  const $ = (id) => document.getElementById(id);
+  let currentQuiz = null;
+
+  function make(tag, className, text) {
+    const element = document.createElement(tag);
+    if (className) element.className = className;
+    // textContent, never innerHTML: model output must not be able to run as code.
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+
+  function showError(id, message) {
+    $(id).textContent = message;
+    $(id).hidden = !message;
+  }
+
+  async function post(path, body) {
+    let response;
+    try {
+      response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch {
+      throw new Error("Couldn't reach the server. Please check your connection and try again.");
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(typeof data.detail === "string" ? data.detail : "Something went wrong. Please try again.");
+    }
+    return data;
+  }
+
+  function renderQuiz(quiz) {
+    const holder = $("questions");
+    holder.replaceChildren();
+    quiz.questions.forEach((question, index) => {
+      const card = make("div", "card");
+      const group = make("fieldset");
+      group.append(make("legend", "", `${index + 1}. ${question.question}`));
+      question.options.forEach((option) => {
+        const label = make("label");
+        const radio = make("input");
+        radio.type = "radio";
+        radio.name = `q${index}`;
+        radio.value = option;
+        label.append(radio, make("span", "", option));
+        group.append(label);
+      });
+      card.append(group);
+      holder.append(card);
+    });
+  }
+
+  function renderResults(result) {
+    $("score").textContent = `You scored ${result.score} out of ${result.total}`;
+    const holder = $("result-list");
+    holder.replaceChildren();
+    result.results.forEach((item) => {
+      const card = make("div", `card ${item.correct ? "right" : "wrong"}`);
+      card.append(make("p", "verdict", item.correct ? "Correct" : "Not quite"));
+      card.append(make("p", "result-q", item.question));
+      if (!item.correct) {
+        card.append(make("p", "result-line", `Your answer: ${item.your_answer ?? "Not answered"}`));
+        card.append(make("p", "result-line", `Correct answer: ${item.correct_answer}`));
+      }
+      card.append(make("p", "result-line note", item.explanation));
+      holder.append(card);
+    });
+  }
+
+  async function startQuiz() {
+    const button = $("start-button");
+    showError("start-error", "");
+    $("results").hidden = true;
+    $("start").hidden = false;
+    button.disabled = true;
+    button.textContent = "Writing your questions…";
+    try {
+      currentQuiz = await post("/api/quiz", { topic: TOPIC });
+      renderQuiz(currentQuiz);
+      $("start").hidden = true;
+      $("quiz").hidden = false;
+      window.scrollTo(0, 0);
+    } catch (error) {
+      showError("start-error", error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Start the quiz";
+    }
+  }
+
+  async function submitQuiz(event) {
+    event.preventDefault();
+    const button = $("submit-button");
+    const answers = currentQuiz.questions.map((_, index) => {
+      const chosen = document.querySelector(`input[name="q${index}"]:checked`);
+      return chosen ? chosen.value : null;
+    });
+    showError("quiz-error", "");
+    button.disabled = true;
+    try {
+      const result = await post("/api/grade", { quiz_id: currentQuiz.quiz_id, answers });
+      renderResults(result);
+      $("quiz").hidden = true;
+      $("results").hidden = false;
+      window.scrollTo(0, 0);
+      $("score").focus({ preventScroll: true });
+    } catch (error) {
+      showError("quiz-error", error.message);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  $("start-button").addEventListener("click", startQuiz);
+  $("again-button").addEventListener("click", startQuiz);
+  $("quiz").addEventListener("submit", submitQuiz);
+</script>
+</body>
+</html>

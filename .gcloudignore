@@ -1,0 +1,14 @@
+.git
+.gitignore
+.gcloudignore
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+tests/
+CLAUDE.local.md
+requirements-dev.txt
+PROGRESS.md
+README.md
+.DS_Store
