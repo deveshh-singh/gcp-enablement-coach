@@ -17,6 +17,13 @@
 - The daily budget moved to Firestore, so a restart can't reset it.
 - A new page: one question at a time, drag-and-drop upload and a score screen.
 
+## Job postings
+- A job posting now gets practice questions on its key skills, researched with Google
+  Search, with sources shown after the quiz.
+- Link reading is more reliable: one script-built page gave 3 unreadable, 1 partial and
+  1 full result from 5 tries of the same address, so the app now retries and falls back
+  to search.
+
 ## Next
 - Sign-in and per-user limits.
 - Chat grounded in the material.

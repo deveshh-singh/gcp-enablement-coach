@@ -15,6 +15,7 @@ from app.coach import (
     problems_with,
 )
 from app.main import HEALTH_PATH, create_app
+from app.sources import Unreadable
 
 TOPIC = "google-cloud-basics"
 LONG_TEXT = "Service accounts give workloads an identity of their own. " * 10
@@ -58,9 +59,14 @@ class FakeReader:
     def __init__(self):
         self.links = []
         self.pdfs = []
+        self.searches = []
 
     def read_link(self, link):
         self.links.append(link)
+        return LONG_TEXT * 2
+
+    def find_link(self, link):
+        self.searches.append(link)
         return LONG_TEXT
 
     def read_pdf(self, data):
@@ -68,7 +74,36 @@ class FakeReader:
         return LONG_TEXT
 
 
-def make_coach(writer=None, clock=None, daily_model_calls=200, **limits):
+class FakePreparer:
+    def __init__(self, job=True, research_fails=False):
+        self.job = job
+        self.research_fails = research_fails
+        self.researched = None
+        self.job_writes = 0
+
+    def analyse(self, material):
+        if not self.job:
+            return {"is_job_posting": False, "role": "", "topics": []}
+        return {"is_job_posting": True, "role": "AI Engineer", "topics": ["RAG", "Agents"]}
+
+    def research(self, role, topics):
+        if self.research_fails:
+            raise RuntimeError("search down")
+        self.researched = (role, topics)
+        return {
+            "notes": LONG_TEXT,
+            "sources": [
+                {"title": "example.com", "url": "https://example.com/a"},
+                {"title": "bad", "url": "javascript:alert(1)"},
+            ],
+        }
+
+    def write_job_questions(self, role, notes, count):
+        self.job_writes += 1
+        return good_quiz()
+
+
+def make_coach(writer=None, clock=None, daily_model_calls=200, preparer=None, **limits):
     clock = clock or Clock()
     return Coach(
         writer or CountingWriter(),
@@ -76,6 +111,7 @@ def make_coach(writer=None, clock=None, daily_model_calls=200, **limits):
         Limits(**limits),
         clock=clock,
         shuffle=lambda options: options.reverse(),
+        preparer=preparer,
     )
 
 
@@ -330,10 +366,11 @@ def test_private_and_odd_links_are_refused(client, reader, link):
 
 
 def test_unreadable_link_gets_a_helpful_message(writer):
-    from app.gemini import Unreadable
-
     class BlockedReader(FakeReader):
         def read_link(self, link):
+            raise Unreadable()
+
+        def find_link(self, link):
             raise Unreadable()
 
     client = TestClient(create_app(make_coach(writer), BlockedReader()))
@@ -413,3 +450,139 @@ def test_visitor_limit_returns_429(reader, writer):
     assert second.status_code == 429
     other = {"x-forwarded-for": "2.2.2.2"}
     assert client.post("/api/quiz/text", json={"text": LONG_TEXT}, headers=other).status_code == 200
+
+
+class FlakyReader(FakeReader):
+    """Replies in turn, like a page built by scripts."""
+
+    def __init__(self, *replies, found=LONG_TEXT):
+        super().__init__()
+        self.replies = list(replies)
+        self.found = found
+
+    def read_link(self, link):
+        self.links.append(link)
+        reply = self.replies.pop(0)
+        if reply is None:
+            raise Unreadable()
+        return reply
+
+    def find_link(self, link):
+        self.searches.append(link)
+        if self.found is None:
+            raise Unreadable()
+        return self.found
+
+
+FULL_PAGE = "A full page. " * 60
+
+
+def test_second_try_can_rescue_a_link():
+    reader = FlakyReader(None, FULL_PAGE)
+    assert make_coach().read_link(reader, "https://a.example") == FULL_PAGE
+    assert reader.searches == []
+
+
+def test_partial_page_triggers_a_retry():
+    reader = FlakyReader("Loading the job...", FULL_PAGE)
+    assert make_coach().read_link(reader, "https://a.example") == FULL_PAGE
+
+
+def test_search_is_the_last_resort():
+    reader = FlakyReader(None, None, found=FULL_PAGE)
+    assert make_coach().read_link(reader, "https://a.example") == FULL_PAGE
+    assert len(reader.searches) == 1
+
+
+def test_longest_partial_is_kept_when_search_finds_nothing():
+    partial = "A partial page. " * 20
+    reader = FlakyReader("Short.", partial, found=None)
+    assert make_coach().read_link(reader, "https://a.example") == partial
+
+
+def test_link_that_never_reads_is_unreadable():
+    with pytest.raises(Unreadable):
+        make_coach().read_link(FlakyReader(None, None, found=None), "https://a.example")
+
+
+def test_short_page_gets_the_unreadable_message_not_the_short_text_one(writer):
+    reader = FlakyReader("Short.", "Short too.", found=None)
+    client = TestClient(create_app(make_coach(writer), reader))
+    response = client.post("/api/quiz/link", json={"link": "example.com"})
+    assert response.status_code == 422
+    assert "pasting" in response.json()["detail"]
+    assert writer.calls == 0
+
+
+def test_search_is_charged_at_its_higher_cost():
+    reader = FlakyReader(None, None, found=FULL_PAGE)
+    with pytest.raises(DailyLimitReached):
+        make_coach(daily_model_calls=11).read_link(reader, "https://a.example")
+    assert reader.searches == []
+
+
+def test_job_posting_gets_researched_questions():
+    writer, preparer = CountingWriter(), FakePreparer()
+    quiz = make_coach(writer, preparer=preparer).quiz_from_material(LONG_TEXT)
+    assert preparer.researched == ("AI Engineer", ["RAG", "Agents"])
+    assert preparer.job_writes == 1
+    assert writer.calls == 0
+    assert quiz["job"]["role"] == "AI Engineer"
+
+
+def test_other_material_gets_an_ordinary_quiz_without_a_search():
+    writer, preparer = CountingWriter(), FakePreparer(job=False)
+    quiz = make_coach(writer, preparer=preparer).quiz_from_material(LONG_TEXT)
+    assert preparer.researched is None
+    assert writer.calls == 1
+    assert quiz["job"] is None
+
+
+def test_failed_search_falls_back_to_an_ordinary_quiz():
+    writer = CountingWriter()
+    preparer = FakePreparer(research_fails=True)
+    quiz = make_coach(writer, preparer=preparer).quiz_from_material(LONG_TEXT)
+    assert writer.calls == 1
+    assert quiz["job"] is None
+
+
+def test_only_safe_source_links_are_kept():
+    coach = make_coach(preparer=FakePreparer())
+    sources = coach.quiz_from_material(LONG_TEXT)["job"]["sources"]
+    assert sources == [{"title": "example.com", "url": "https://example.com/a"}]
+
+
+def test_research_input_is_cut_down():
+    class Noisy(FakePreparer):
+        def analyse(self, material):
+            return {"is_job_posting": True, "role": "R" * 500, "topics": ["T" * 200] * 9}
+
+    preparer = Noisy()
+    make_coach(preparer=preparer).quiz_from_material(LONG_TEXT)
+    role, topics = preparer.researched
+    assert len(role) == 120
+    assert len(topics) == 5
+    assert all(len(topic) == 80 for topic in topics)
+
+
+def test_job_research_is_limited_by_the_budget():
+    preparer = FakePreparer()
+    coach = make_coach(preparer=preparer, daily_model_calls=5)
+    with pytest.raises(DailyLimitReached):
+        coach.quiz_from_material(LONG_TEXT)
+    assert preparer.researched is None
+
+
+def test_closed_role_is_reported():
+    class Closed(FakePreparer):
+        def analyse(self, material):
+            return {**super().analyse(material), "is_closed": True}
+
+    quiz = make_coach(preparer=Closed()).quiz_from_material(LONG_TEXT)
+    assert quiz["job"]["closed"] is True
+
+
+def test_grading_reports_the_job_and_sources():
+    coach = make_coach(preparer=FakePreparer())
+    quiz = coach.quiz_from_material(LONG_TEXT)
+    assert coach.grade(quiz["quiz_id"], ["B"] * 5)["job"]["role"] == "AI Engineer"

@@ -22,7 +22,7 @@ from app.coach import (
     VisitorLimitReached,
     WrongAnswerCount,
 )
-from app.gemini import Gemini, Unreadable
+from app.gemini import Gemini
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -36,6 +36,7 @@ HEALTH_PATH = "/api/health"
 
 class Reader(Protocol):
     def read_link(self, link: str) -> str: ...
+    def find_link(self, link: str) -> str: ...
     def read_pdf(self, data: bytes) -> str: ...
 
 
@@ -81,7 +82,7 @@ def friendly_errors():
         raise HTTPException(415, "Please use a PDF, Word (.docx), .txt or .md file.")
     except sources.BadLink:
         raise HTTPException(422, "That doesn't look like a public web address.")
-    except Unreadable:
+    except sources.Unreadable:
         raise HTTPException(422, "Couldn't read that. Some sites block automated reading, so try copying the text and pasting it instead.")
     except VisitorLimitReached:
         raise HTTPException(429, "You've made several quizzes in the last hour. Please try again a little later.")
@@ -102,7 +103,7 @@ def default_budget() -> Budget:
 
 def create_app(coach: Coach | None = None, reader: Reader | None = None) -> FastAPI:
     gemini = Gemini()
-    coach = coach or Coach(gemini.write_questions, default_budget())
+    coach = coach or Coach(gemini.write_questions, default_budget(), preparer=gemini)
     reader = reader or gemini
     app = FastAPI(title="Enablement Coach", docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -153,8 +154,8 @@ def create_app(coach: Coach | None = None, reader: Reader | None = None) -> Fast
         with friendly_errors():
             link = sources.check_link(body.link)
             coach.check_visitor(visitor_of(request))
-            coach.spend_call()
-            return coach.quiz_from_material(sources.clean_material(reader.read_link(link)))
+            text = coach.read_link(reader, link)
+            return coach.quiz_from_material(sources.clean_material(text))
 
     @app.post("/api/quiz/file")
     def quiz_from_file(request: Request, file: UploadFile = File()) -> dict:
@@ -166,6 +167,8 @@ def create_app(coach: Coach | None = None, reader: Reader | None = None) -> Fast
                 coach.check_visitor(visitor_of(request))
                 coach.spend_call()
                 text = reader.read_pdf(data)
+                if len(text.strip()) < sources.MIN_MATERIAL_CHARS:
+                    raise sources.Unreadable()
             else:
                 text = sources.text_from_file(name, data)
                 sources.clean_material(text)

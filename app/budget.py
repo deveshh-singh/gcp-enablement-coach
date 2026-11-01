@@ -15,8 +15,8 @@ SECONDS_PER_DAY = 86_400
 
 
 class Budget(Protocol):
-    def spend(self) -> bool:
-        """Use one call. Return False if today's budget has run out."""
+    def spend(self, units: int = 1) -> bool:
+        """Use some of today's budget. Return False if there isn't enough left."""
         ...
 
 
@@ -34,14 +34,14 @@ class MemoryBudget:
         self._day = int(clock() // SECONDS_PER_DAY)
         self._used = 0
 
-    def spend(self) -> bool:
+    def spend(self, units: int = 1) -> bool:
         with self._lock:
             today = int(self._clock() // SECONDS_PER_DAY)
             if today != self._day:
                 self._day, self._used = today, 0
-            if self._used >= self._daily_calls:
+            if self._used + units > self._daily_calls:
                 return False
-            self._used += 1
+            self._used += units
             return True
 
 
@@ -57,7 +57,7 @@ class FirestoreBudget:
         self._daily_calls = daily_calls
         self._client = None
 
-    def spend(self) -> bool:
+    def spend(self, units: int = 1) -> bool:
         from google.cloud import firestore
 
         if self._client is None:
@@ -71,9 +71,9 @@ class FirestoreBudget:
         def take_one(transaction) -> bool:
             snapshot = document.get(transaction=transaction)
             used = (snapshot.to_dict() or {}).get("model_calls", 0)
-            if used >= daily_calls:
+            if used + units > daily_calls:
                 return False
-            transaction.set(document, {"model_calls": used + 1})
+            transaction.set(document, {"model_calls": used + units})
             return True
 
         return take_one(self._client.transaction())

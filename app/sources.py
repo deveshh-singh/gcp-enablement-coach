@@ -37,6 +37,10 @@ class BadLink(Exception):
     """The link isn't a public web address."""
 
 
+class Unreadable(Exception):
+    """The page or file couldn't be read."""
+
+
 def clean_material(text: str) -> str:
     """Tidy visitor text, cap its length and check there is enough to use."""
     cleaned = text.replace("\x00", "")

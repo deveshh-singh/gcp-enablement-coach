@@ -13,9 +13,10 @@ import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 from app.budget import Budget, MemoryBudget
+from app.sources import MIN_MATERIAL_CHARS, Unreadable
 
 logger = logging.getLogger("coach")
 
@@ -30,7 +31,28 @@ TOPICS = {
 QUESTIONS_PER_QUIZ = 5
 CUSTOM = "custom"
 
+# A web search costs more than a normal model call and can run several queries, so
+# it takes 10 from the daily budget of 200. That allows 20 searches a day at most.
+SEARCH_COST = 10
+
+# Below this length, a page read has probably caught a loading screen.
+MIN_PAGE_CHARS = 600
+MIN_NOTES_CHARS = 200
+MAX_TOPICS = 5
+MAX_SOURCES = 6
+
 Write = Callable[[str, str, int], list[dict]]
+
+
+class LinkReader(Protocol):
+    def read_link(self, link: str) -> str: ...
+    def find_link(self, link: str) -> str: ...
+
+
+class JobPreparer(Protocol):
+    def analyse(self, material: str) -> dict: ...
+    def research(self, role: str, topics: list[str]) -> dict: ...
+    def write_job_questions(self, role: str, notes: str, count: int) -> list[dict]: ...
 
 
 class TopicNotFound(Exception):
@@ -64,6 +86,7 @@ class Limits:
     quiz_lifetime_seconds: int = 3_600
     max_stored_quizzes: int = 500
     visitor_quizzes_per_hour: int = 6
+    link_reads: int = 2
 
 
 def problems_with(question: dict) -> list[str]:
@@ -114,8 +137,10 @@ class Coach:
         limits: Limits = Limits(),
         clock: Callable[[], float] = time.time,
         shuffle: Callable[[list], None] = random.shuffle,
+        preparer: JobPreparer | None = None,
     ):
         self._write = write
+        self._preparer = preparer
         self._budget = budget or MemoryBudget(clock=clock)
         self._limits = limits
         self._clock = clock
@@ -129,10 +154,37 @@ class Coach:
     def topics(self) -> list[dict]:
         return [{"id": key, "title": t["title"]} for key, t in TOPICS.items()]
 
-    def spend_call(self) -> None:
-        """Pay for one model call, or stop if today's budget is used."""
-        if not self._budget.spend():
+    def spend_call(self, units: int = 1) -> None:
+        """Pay for a model call, or stop if today's budget is used."""
+        if not self._budget.spend(units):
             raise DailyLimitReached()
+
+    def read_link(self, reader: LinkReader, link: str) -> str:
+        """Read a page, allowing for sites that only sometimes come back whole.
+
+        Pages built by scripts can return nothing, part of the page or all of it
+        from one try to the next. So this tries more than once, keeps the longest
+        result, and finally asks Google Search for the page instead.
+        """
+        best = ""
+        for _ in range(self._limits.link_reads):
+            self.spend_call()
+            try:
+                text = reader.read_link(link)
+            except Unreadable:
+                continue
+            if len(text.strip()) >= MIN_PAGE_CHARS:
+                return text
+            best = max(best, text, key=len)
+
+        self.spend_call(SEARCH_COST)
+        try:
+            best = max(best, reader.find_link(link), key=len)
+        except Unreadable:
+            logger.info("search found nothing for a link")
+        if len(best.strip()) < MIN_MATERIAL_CHARS:
+            raise Unreadable()
+        return best
 
     def check_visitor(self, visitor: str) -> None:
         """Allow a limited number of quizzes per visitor per hour.
@@ -175,11 +227,73 @@ class Coach:
                 return self._public(quiz_id, self._quizzes[quiz_id])
 
     def quiz_from_material(self, material: str, title: str = "the material provided") -> dict:
-        """Return a quiz on a visitor's own material. The material is not kept."""
-        questions = self._write_questions(title, material)
-        quiz_id = self._store(CUSTOM, questions)
+        """Return a quiz on a visitor's own material. The material is not kept.
+
+        A job posting gets a different quiz: practice on the skills the job needs,
+        researched on the web, rather than questions about the posting's wording.
+        """
+        job = self._job_in(material)
+        if job:
+            notes = self._research(job)
+            if notes:
+                job["sources"] = notes["sources"]
+                questions = self._write_questions(
+                    job["role"], notes["notes"], self._preparer.write_job_questions
+                )
+                return self._stored_quiz(questions, job)
+        return self._stored_quiz(self._write_questions(title, material), None)
+
+    def _stored_quiz(self, questions: list[dict], job: dict | None) -> dict:
+        quiz_id = self._store(CUSTOM, questions, job)
         with self._lock:
             return self._public(quiz_id, self._quizzes[quiz_id])
+
+    def _job_in(self, material: str) -> dict | None:
+        """Return the role and key skills if this is a job posting.
+
+        These come from the visitor's material and go into a search prompt, so
+        they are cut to a fixed number of short strings first.
+        """
+        if self._preparer is None:
+            return None
+        self.spend_call()
+        try:
+            found = self._preparer.analyse(material)
+        except Exception:
+            logger.exception("couldn't analyse the material")
+            return None
+
+        role = " ".join(str(found.get("role", "")).split())[:120]
+        topics = [" ".join(str(t).split())[:80] for t in found.get("topics", [])]
+        topics = [t for t in topics if t][:MAX_TOPICS]
+        if not found.get("is_job_posting") or not role or not topics:
+            return None
+        return {
+            "role": role,
+            "topics": topics,
+            "sources": [],
+            "closed": bool(found.get("is_closed")),
+        }
+
+    def _research(self, job: dict) -> dict | None:
+        """Search the web for the skills. If that fails, the caller falls back to
+        an ordinary quiz on the posting, which is better than no quiz."""
+        self.spend_call(SEARCH_COST)
+        try:
+            notes = self._preparer.research(job["role"], job["topics"])
+        except Exception:
+            logger.exception("research failed")
+            return None
+        if len(notes.get("notes", "").strip()) < MIN_NOTES_CHARS:
+            return None
+        return {
+            "notes": notes["notes"],
+            "sources": [
+                {"title": str(s["title"])[:100], "url": s["url"]}
+                for s in notes.get("sources", [])
+                if str(s.get("url", "")).startswith("https://")
+            ][:MAX_SOURCES],
+        }
 
     def grade(self, quiz_id: str, answers: list[str | None]) -> dict:
         """Mark the answers by comparing text. The model plays no part in this."""
@@ -208,12 +322,14 @@ class Coach:
             "score": sum(result["correct"] for result in results),
             "total": len(results),
             "results": results,
+            "job": quiz.get("job"),
         }
 
-    def _write_questions(self, title: str, material: str) -> list[dict]:
+    def _write_questions(self, title: str, material: str, write: Write | None = None) -> list[dict]:
+        write = write or self._write
         for attempt in range(1, self._limits.attempts_per_quiz + 1):
             self.spend_call()
-            valid = keep_valid(self._write(title, material, QUESTIONS_PER_QUIZ))
+            valid = keep_valid(write(title, material, QUESTIONS_PER_QUIZ))
             if len(valid) >= QUESTIONS_PER_QUIZ:
                 chosen = valid[:QUESTIONS_PER_QUIZ]
                 for question in chosen:
@@ -224,13 +340,14 @@ class Coach:
             logger.warning("attempt %s gave %s valid questions", attempt, len(valid))
         raise NoValidQuiz(title)
 
-    def _store(self, topic: str, questions: list[dict]) -> str:
+    def _store(self, topic: str, questions: list[dict], job: dict | None = None) -> str:
         quiz_id = uuid.uuid4().hex
         with self._lock:
             self._quizzes[quiz_id] = {
                 "topic": topic,
                 "questions": questions,
                 "created": self._clock(),
+                "job": job,
             }
             while len(self._quizzes) > self._limits.max_stored_quizzes:
                 self._quizzes.popitem(last=False)
@@ -246,6 +363,7 @@ class Coach:
         return {
             "quiz_id": quiz_id,
             "topic": quiz["topic"],
+            "job": quiz.get("job"),
             "questions": [
                 {"question": q["question"], "options": q["options"]}
                 for q in quiz["questions"]

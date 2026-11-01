@@ -120,6 +120,16 @@
   label.option:hover { border-color: var(--muted); }
   label.option:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
   label.option input { margin: 4px 0 0; accent-color: var(--accent); flex: none; }
+  .job { padding: 12px 14px; margin-bottom: 18px; border-radius: 10px; background: var(--accent-soft); }
+  .job p { margin: 0 0 8px; font-weight: 650; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: .84rem; padding: 3px 9px; border-radius: 99px; background: var(--panel); border: 1px solid var(--line); }
+  .closed { display: block; margin-top: 10px; font-size: .88rem; color: var(--muted); }
+  .sources { padding: 16px 20px; margin-top: 12px; }
+  .sources h3 { font-size: 1rem; margin: 0 0 4px; }
+  .sources p { color: var(--muted); font-size: .92rem; margin: 0 0 8px; }
+  .sources ul { margin: 0; padding-left: 18px; font-size: .95rem; }
+  .sources li { margin-bottom: 3px; }
   .nav { display: flex; justify-content: space-between; gap: 10px; margin-top: 16px; }
   .nav .primary { margin-left: auto; }
 
@@ -176,7 +186,7 @@
     <section id="start-view">
       <div class="hero">
         <h1>Find out what you really took in.</h1>
-        <p>Give it a document, a web page or your own notes. Gemini writes five questions from it, then you see your score and an explanation for each answer.</p>
+        <p>Give it a document, a web page or your own notes for a quiz on what it says. Give it a job posting and it researches the key skills, so you can practise for the role.</p>
       </div>
 
       <div class="panel">
@@ -197,7 +207,7 @@
         <form class="tab-body" id="body-link" role="tabpanel" aria-labelledby="tab-link" hidden>
           <label class="field" for="link-input">Link to a public page</label>
           <input id="link-input" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/article">
-          <p class="hint">A job posting, documentation or an article. Pages behind a login can't be read.</p>
+          <p class="hint">Paste a job posting to practise its key skills, or use an article or documentation. Pages behind a login can't be read.</p>
           <div class="actions"><button class="primary" type="submit">Make my quiz</button></div>
         </form>
 
@@ -208,7 +218,7 @@
         </form>
 
         <p class="error" id="start-error" role="alert" style="margin:0 20px 20px" hidden></p>
-        <p class="notice">This app doesn't save your document. It's sent to Gemini to write the questions, and the quiz is kept for up to an hour so it can be marked. Please don't upload anything confidential.</p>
+        <p class="notice">This app doesn't save your document. It's sent to Gemini to write the questions, and the quiz is kept for up to an hour so it can be marked. For a job posting, its key skills are searched on the web. Please don't upload anything confidential.</p>
       </div>
 
       <div class="sample">
@@ -220,13 +230,18 @@
     <section id="loading-view" class="panel loading" hidden aria-live="polite">
       <div class="spinner" aria-hidden="true"></div>
       <h2 id="loading-title">Writing your questions</h2>
-      <p>This usually takes under a minute.</p>
+      <p id="loading-note">This usually takes under a minute.</p>
     </section>
 
     <section id="quiz-view" hidden>
       <form class="panel quiz" id="quiz-form">
         <div class="count"><span id="count-text"></span></div>
         <div class="bar" aria-hidden="true"><span id="bar"></span></div>
+        <div class="job" id="job-box" hidden>
+          <p id="job-role"></p>
+          <div class="chips" id="job-topics"></div>
+          <small class="closed" id="job-closed" hidden>The page says this role has been filled or closed, but you can still practise its skills.</small>
+        </div>
         <div id="question-holder"></div>
         <div class="nav">
           <button class="secondary" id="back-button" type="button">Back</button>
@@ -249,6 +264,11 @@
         </div>
       </div>
       <div id="result-list"></div>
+      <div class="panel sources" id="sources-box" hidden>
+        <h3>Where this came from</h3>
+        <p>Written from web search results, so check anything important.</p>
+        <ul id="sources-list"></ul>
+      </div>
       <div class="actions"><button class="primary" id="again-button" type="button">Make another quiz</button></div>
     </section>
 
@@ -256,9 +276,9 @@
       <h2>How it works</h2>
       <ol class="steps">
         <li><strong>Gemini reads your material</strong><span>Links are fetched by Gemini on Google Cloud, not by this app's server.</span></li>
-        <li><strong>Gemini writes the questions</strong><span>It's told to use only your material and to answer in a fixed format.</span></li>
-        <li><strong>Code checks every question</strong><span>Four different options, one of them correct. If too few pass, it tries again.</span></li>
-        <li><strong>Code marks your answers</strong><span>Answers stay on the server until you submit. The model plays no part in your score.</span></li>
+        <li><strong>A job posting gets extra research</strong><span>Gemini picks out the key skills and searches the web for each one.</span></li>
+        <li><strong>Gemini writes the questions</strong><span>It works only from your material or the research, in a fixed format.</span></li>
+        <li><strong>Code checks and marks everything</strong><span>Every question is validated, and answers stay on the server until you submit.</span></li>
       </ol>
     </section>
   </main>
@@ -317,20 +337,47 @@
     body: JSON.stringify(body),
   });
 
-  async function makeQuiz(title, request) {
+  const QUICK_NOTE = "This usually takes under a minute.";
+  const JOB_NOTE = "A job posting takes longer, because the key skills are researched too. Allow up to two minutes.";
+
+  async function makeQuiz(title, request, note = JOB_NOTE) {
     showError("start-error", "");
     $("loading-title").textContent = title;
+    $("loading-note").textContent = note;
     showView("loading-view");
     try {
       quiz = await request();
       answers = quiz.questions.map(() => null);
       current = 0;
+      renderJob(quiz.job);
       showView("quiz-view");
       renderQuestion();
     } catch (error) {
       showView("start-view");
       showError("start-error", error.message);
     }
+  }
+
+  function renderJob(job) {
+    $("job-box").hidden = !job;
+    if (!job) return;
+    $("job-role").textContent = `Practice for: ${job.role}`;
+    $("job-closed").hidden = !job.closed;
+    $("job-topics").replaceChildren(...job.topics.map((topic) => make("span", "chip", topic)));
+  }
+
+  function renderSources(job) {
+    const sources = job ? job.sources : [];
+    $("sources-box").hidden = sources.length === 0;
+    $("sources-list").replaceChildren(...sources.map((source) => {
+      const item = make("li");
+      const link = make("a", "", source.title);
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      item.append(link);
+      return item;
+    }));
   }
 
   function renderQuestion() {
@@ -393,6 +440,7 @@
       return card;
     });
     $("result-list").replaceChildren(...cards);
+    renderSources(result.job);
   }
 
   async function finish() {
@@ -470,7 +518,7 @@
   });
 
   $("sample-button").addEventListener("click", () => {
-    makeQuiz("Writing your questions", () => sendJson("/api/quiz", { topic: "google-cloud-basics" }));
+    makeQuiz("Writing your questions", () => sendJson("/api/quiz", { topic: "google-cloud-basics" }), QUICK_NOTE);
   });
 
   $("quiz-form").addEventListener("submit", (event) => {

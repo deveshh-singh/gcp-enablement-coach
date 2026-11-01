@@ -1,7 +1,8 @@
 # Enablement Coach
 
-Turns a document, a web page or your own notes into a five-question quiz. Gemini
-writes the questions on Google Cloud, code checks them, and code does the marking.
+Turns a document, a web page or your own notes into a five-question quiz. Give it a
+job posting and it researches the key skills instead, so you can practise for the role.
+Gemini writes the questions on Google Cloud, code checks them, and code does the marking.
 
 **Try it:** https://coach-api-391985624624.asia-south1.run.app
 
@@ -15,7 +16,8 @@ Browser: upload a file, paste a link, paste text, or try the sample
    │
    ▼
 Cloud Run service "coach-api" (FastAPI, asia-south1), runs as a service account
-   ├─► Gemini on Google Cloud: reads PDFs and links, then writes the questions
+   ├─► Gemini on Google Cloud: reads PDFs and links, spots job postings, researches
+   │     their key skills with Google Search, then writes the questions
    │     (no key file: Cloud Run supplies short-lived credentials)
    └─► Firestore: the daily count of model calls
 ```
@@ -24,6 +26,13 @@ Cloud Run service "coach-api" (FastAPI, asia-south1), runs as a service account
   options and an answer that is one of them. If too few pass, the app tries again, up
   to three times. Options are then shuffled, because Gemini tends to list the correct
   answer first.
+- **A job posting changes the quiz.** Gemini decides whether the material is a job
+  posting and names its key skills. It searches the web for each one and writes
+  practice questions from those notes, and the sources are listed after the quiz. If
+  the search fails, the visitor gets an ordinary quiz on the posting.
+- **Pages can read differently each time.** Pages built by scripts can return nothing,
+  part of the page or all of it. The app tries twice, keeps the longest result, and
+  then asks Google Search for the page.
 - **Answers stay on the server** until the quiz is submitted, and marking compares text
   in code. The model plays no part in the score.
 - **This server never fetches a link.** Gemini's URL context tool reads the page on
@@ -34,8 +43,8 @@ Cloud Run service "coach-api" (FastAPI, asia-south1), runs as a service account
   questions, and its output is shown as plain text, never as HTML.
 - **Uploads are checked and not stored.** Files are limited to 5 MB and held in memory.
   PDFs must really be PDFs, and a Word file's unpacked size is checked before it is read.
-- **Cost is limited.** Each model call takes one from a daily budget of 200, counted in
-  Firestore so that a restart can't reset it. If Firestore can't be reached, quizzes are
+- **Cost is limited.** Each model call takes one from a daily budget of 200, and a web
+  search takes 10, counted in Firestore so that a restart can't reset it. If Firestore can't be reached, quizzes are
   refused. One visitor can make six quizzes an hour, and sample quizzes requested
   within 30 seconds share one model call.
 
