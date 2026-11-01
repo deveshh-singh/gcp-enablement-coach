@@ -19,8 +19,8 @@ MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash")
 TIMEOUT_MS = 90_000
 UNREADABLE = "UNREADABLE"
 
-# 429 and 503 mean Google has no capacity right now, not that the request is wrong.
-BUSY_CODES = (429, 503)
+# 429, 503 and 504 mean Google has no capacity right now, not that the request is wrong.
+BUSY_CODES = (429, 503, 504)
 FALLBACK_LOCATION = "global"
 RETRY_WAIT_SECONDS = 3
 

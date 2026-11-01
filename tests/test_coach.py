@@ -654,3 +654,19 @@ def test_busy_model_gets_a_clear_message(writer):
     response = client.post("/api/quiz/link", json={"link": "example.com"})
     assert response.status_code == 503
     assert "busy" in response.json()["detail"]
+
+
+def test_a_timeout_counts_as_busy(monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+
+    class TimesOutOnce(BusyThen):
+        def generate_content(self, **_):
+            self.calls += 1
+            if self.calls == 1:
+                raise errors.ServerError(504, {"error": {"code": 504, "message": "x", "status": "x"}})
+            return "reply"
+
+    home = TimesOutOnce(0)
+    gemini, _ = gemini_with(home, BusyThen(0))
+    assert gemini._generate("hi") == "reply"
+    assert home.calls == 2
