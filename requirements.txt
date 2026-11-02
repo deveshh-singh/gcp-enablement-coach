@@ -4,3 +4,4 @@ pydantic==2.14.2
 uvicorn[standard]==0.54.0
 google-cloud-firestore==2.34.1
 python-multipart==0.0.33
+firebase-admin==7.7.0

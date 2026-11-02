@@ -38,6 +38,8 @@
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; }
   .brand img { width: 26px; height: 26px; }
   .top a { color: var(--muted); font-size: .92rem; }
+  .account { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; justify-content: flex-end; color: var(--muted); font-size: .92rem; }
+  .text-button { font: inherit; color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
 
   .hero { padding: 28px 0 28px; }
   h1 {
@@ -87,12 +89,11 @@
   .actions { margin-top: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
   .notice { margin: 0; padding: 14px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: .88rem; }
-  .sample {
-    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
-    margin-top: 16px; padding: 16px 20px; border: 1px solid var(--line); border-radius: 14px;
-  }
-  .sample p { margin: 0; }
-  .sample small { color: var(--muted); font-size: .9rem; display: block; }
+  .card { padding: 20px; }
+  .card h2 { font-family: var(--serif); font-weight: 600; font-size: 1.4rem; margin: 0 0 4px; }
+  .card > p { color: var(--muted); margin: 0; }
+  .own { margin-top: 16px; }
+  .card .hint { margin-top: 12px; }
   .error { color: var(--bad); background: var(--bad-soft); border-radius: 8px; padding: 10px 12px; margin: 14px 0 0; }
 
   .loading { text-align: center; padding: 56px 20px; margin-top: 8px; }
@@ -179,7 +180,11 @@
 <div class="wrap">
   <header class="top">
     <div class="brand"><img src="/favicon.svg" alt=""><span>Enablement Coach</span></div>
-    <a href="https://github.com/deveshh-singh/gcp-enablement-coach">Source code</a>
+    <div class="account">
+      <span id="account-name" hidden></span>
+      <button class="text-button" id="sign-out" type="button" hidden>Sign out</button>
+      <a href="https://github.com/deveshh-singh/gcp-enablement-coach">Source code</a>
+    </div>
   </header>
 
   <main>
@@ -189,7 +194,25 @@
         <p>Give it a document, a web page or your own notes for a quiz on what it says. Give it a job posting and it researches the key skills, so you can practise for the role.</p>
       </div>
 
-      <div class="panel">
+      <p class="error" id="start-error" role="alert" style="margin:0 0 14px" hidden></p>
+
+      <div class="panel card">
+        <h2>Try it now, with no sign-in</h2>
+        <p>Gemini wrote these quizzes in advance, so they open straight away.</p>
+        <div class="actions">
+          <button class="primary" data-sample="google-cloud-basics" type="button">Google Cloud basics</button>
+          <button class="secondary" data-sample="sample-job-posting" type="button">Practise for a sample job</button>
+        </div>
+      </div>
+
+      <div class="panel card own" id="locked-panel">
+        <h2>Use your own material</h2>
+        <p>Sign in to make a quiz from a file, a link or your own text, including a real job posting.</p>
+        <div class="actions"><button class="primary" id="sign-in" type="button" disabled>Sign in with Google</button></div>
+        <p class="hint">Google shares your name and email address with this app. Firebase keeps them so you can sign in again. The app itself stores only a random ID, to count your daily limit of 30 model calls.</p>
+      </div>
+
+      <div class="panel own" id="own-panel" hidden>
         <div class="tabs" role="tablist" aria-label="Choose your material">
           <button class="tab" role="tab" id="tab-file" aria-controls="body-file" aria-selected="true" type="button">Upload a file</button>
           <button class="tab" role="tab" id="tab-link" aria-controls="body-link" aria-selected="false" type="button" tabindex="-1">Paste a link</button>
@@ -217,13 +240,7 @@
           <div class="actions"><button class="primary" type="submit">Make my quiz</button></div>
         </form>
 
-        <p class="error" id="start-error" role="alert" style="margin:0 20px 20px" hidden></p>
         <p class="notice">This app doesn't save your document. It's sent to Gemini to write the questions, and the quiz is kept for up to an hour so it can be marked. For a job posting, its key skills are searched on the web. Please don't upload anything confidential.</p>
-      </div>
-
-      <div class="sample">
-        <p>No document to hand?<small>Try a quiz on Google Cloud basics.</small></p>
-        <button class="secondary" id="sample-button" type="button">Try the sample</button>
       </div>
     </section>
 
@@ -283,7 +300,7 @@
     </section>
   </main>
 
-  <footer>An early version, with no accounts yet. A daily limit keeps the running cost under control.</footer>
+  <footer>An early version. Daily limits keep the running cost under control.</footer>
 </div>
 
 <script>
@@ -320,10 +337,54 @@
     ? "https://coach-api-391985624624.asia-south1.run.app"
     : "";
 
-  async function send(path, options) {
+  // These settings identify the project and aren't secret. The protection comes from
+  // Firebase's list of allowed sites and the server checking each sign-in token.
+  const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/12.19.0";
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyCa0fMyIw730ZwtcZsPGhZRAyZ076wa1CY",
+    authDomain: "enablement-coach-ds26.firebaseapp.com",
+    projectId: "enablement-coach-ds26",
+    appId: "1:391985624624:web:21daaa54538e74c8e99ff5",
+  };
+
+  let firebase = null;
+  let user = null;
+
+  function showAccount(next) {
+    user = next;
+    const name = user ? user.displayName || user.email || "Signed in" : "";
+    $("locked-panel").hidden = Boolean(user);
+    $("own-panel").hidden = !user;
+    $("account-name").textContent = name;
+    $("account-name").hidden = !user;
+    $("sign-out").hidden = !user;
+  }
+
+  // Loaded here rather than in a script tag, so a failure leaves the samples working.
+  async function startSignIn() {
+    try {
+      const [appSdk, authSdk] = await Promise.all([
+        import(`${FIREBASE_SDK}/firebase-app.js`),
+        import(`${FIREBASE_SDK}/firebase-auth.js`),
+      ]);
+      const auth = authSdk.getAuth(appSdk.initializeApp(FIREBASE_CONFIG));
+      firebase = {
+        signIn: () => authSdk.signInWithPopup(auth, new authSdk.GoogleAuthProvider()),
+        signOut: () => authSdk.signOut(auth),
+      };
+      authSdk.onAuthStateChanged(auth, showAccount);
+      $("sign-in").disabled = false;
+    } catch {
+      showError("start-error", "Sign-in isn't available right now, but the sample quizzes still work.");
+    }
+  }
+
+  async function send(path, options = {}) {
     let response;
     try {
-      response = await fetch(API + path, { method: "POST", ...options });
+      const headers = { ...options.headers };
+      if (user) headers.Authorization = `Bearer ${await user.getIdToken()}`;
+      response = await fetch(API + path, { method: "POST", ...options, headers });
     } catch {
       throw new Error("Couldn't reach the server. Please check your connection and try again.");
     }
@@ -342,7 +403,6 @@
     body: JSON.stringify(body),
   });
 
-  const QUICK_NOTE = "This usually takes under a minute.";
   const JOB_NOTE = "A job posting takes longer, because the key skills are researched too. Allow up to two minutes.";
 
   async function makeQuiz(title, request, note = JOB_NOTE) {
@@ -522,8 +582,27 @@
     makeQuiz("Writing your questions", () => sendJson("/api/quiz/text", { text }));
   });
 
-  $("sample-button").addEventListener("click", () => {
-    makeQuiz("Writing your questions", () => sendJson("/api/quiz", { topic: "google-cloud-basics" }), QUICK_NOTE);
+  document.querySelectorAll("[data-sample]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const path = `/api/samples/${button.dataset.sample}`;
+      makeQuiz("Opening the quiz", () => send(path, { method: "GET" }), "");
+    });
+  });
+
+  $("sign-in").addEventListener("click", async () => {
+    showError("start-error", "");
+    try {
+      await firebase.signIn();
+    } catch (error) {
+      const changedTheirMind = ["auth/popup-closed-by-user", "auth/cancelled-popup-request"];
+      if (changedTheirMind.includes(error.code)) return;
+      showError("start-error", "Sign-in didn't finish. Please allow pop-ups for this site and try again.");
+    }
+  });
+
+  $("sign-out").addEventListener("click", async () => {
+    await firebase.signOut();
+    showView("start-view");
   });
 
   $("quiz-form").addEventListener("submit", (event) => {
@@ -536,6 +615,8 @@
 
   $("back-button").addEventListener("click", () => { current -= 1; renderQuestion(); });
   $("again-button").addEventListener("click", () => showView("start-view"));
+
+  startSignIn();
 </script>
 </body>
 </html>

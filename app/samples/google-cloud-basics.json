@@ -1,0 +1,60 @@
+{
+  "questions": [
+    {
+      "question": "What happens when a Google Cloud project's spending exceeds a set budget threshold?",
+      "options": [
+        "An alert is sent to warn administrators, but resources continue to run and spend.",
+        "Active resources are automatically paused until the billing cycle resets or is adjusted.",
+        "The linked billing account is suspended, preventing further charges from being incurred.",
+        "The project's API access is restricted to prevent any further resource deployment."
+      ],
+      "answer": "An alert is sent to warn administrators, but resources continue to run and spend.",
+      "explanation": "A budget alert is purely a warning mechanism. It does not automatically stop resources or cap spending."
+    },
+    {
+      "question": "Why is it recommended to run applications on Cloud Run using built-in service accounts instead of using long-lived service account keys?",
+      "options": [
+        "Cloud Run prevents workloads from using manual key files, meaning only automated credentials can be used.",
+        "Long-lived keys present a security risk if they leak, whereas Cloud Run can automatically retrieve short-lived credentials.",
+        "Service account keys expire after twenty-four hours, requiring constant manual updates from the development team.",
+        "Long-lived keys introduce network latency, whereas short-lived credentials allow for faster authentication times."
+      ],
+      "answer": "Long-lived keys present a security risk if they leak, whereas Cloud Run can automatically retrieve short-lived credentials.",
+      "explanation": "Long-lived keys are a security risk because they can leak. Cloud Run avoids this by automatically providing short-lived credentials to workloads."
+    },
+    {
+      "question": "When deploying an update to an application running on Cloud Run, how are the changes managed?",
+      "options": [
+        "The existing container is modified in place, updating only the specific files that have changed in the code.",
+        "A new unchangeable snapshot called a revision is created, allowing traffic to be shifted to it dynamically.",
+        "The application is temporarily taken offline while the container image is being overwritten by the system.",
+        "A new Google Cloud project is automatically generated to host the updated version of the container image."
+      ],
+      "answer": "A new unchangeable snapshot called a revision is created, allowing traffic to be shifted to it dynamically.",
+      "explanation": "Each deployment on Cloud Run creates a new revision, which is an unchangeable snapshot of the code and settings, and traffic can be moved between them."
+    },
+    {
+      "question": "When using a Gemini model and requesting a response schema, why is validation of the model's output still necessary?",
+      "options": [
+        "Structured output requires a manual decryption step before it can be read safely by the application.",
+        "A response that matches the requested structure perfectly can still contain incorrect information.",
+        "The model might return the output in a free-text format if it fails to interpret the requested schema.",
+        "The schema validation process automatically expires if it is not verified within a set time period."
+      ],
+      "answer": "A response that matches the requested structure perfectly can still contain incorrect information.",
+      "explanation": "Even if the output conforms perfectly to the requested schema shape, the information in the answer can still be incorrect."
+    },
+    {
+      "question": "How does the Google Cloud resource hierarchy affect policy management?",
+      "options": [
+        "Policies set at lower levels automatically override and erase policies set at higher levels.",
+        "Policies must be explicitly defined at the project level to take effect on resources.",
+        "Policies defined at higher levels of the hierarchy are automatically inherited by resources below.",
+        "Policies can only be applied to folders and cannot be applied directly to individual projects."
+      ],
+      "answer": "Policies defined at higher levels of the hierarchy are automatically inherited by resources below.",
+      "explanation": "The resource hierarchy is structured so that policies set at higher levels, such as the organisation or folders, are inherited by everything below them."
+    }
+  ],
+  "job": null
+}

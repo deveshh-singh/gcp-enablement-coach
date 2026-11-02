@@ -1,0 +1,95 @@
+{
+  "questions": [
+    {
+      "question": "An AI Solutions Engineer needs to optimise a RAG pipeline for an enterprise client who is concerned about high API billing and slow response times. Which of the following adjustments best addresses these latency and cost concerns?",
+      "options": [
+        "Increase the number of retrieved document chunks and expand the prompt context window.",
+        "Reduce the volume of retrieved context passed to the LLM during prompt augmentation.",
+        "Transition the entire pipeline to run heavy transformations using Pandas dataframes.",
+        "Implement a multi-stage Dockerfile to deploy larger deep-learning frameworks on GPUs."
+      ],
+      "answer": "Reduce the volume of retrieved context passed to the LLM during prompt augmentation.",
+      "explanation": "Minimising the context retrieved and passed to the model reduces token usage and speeds up inference, lowering both cost and latency."
+    },
+    {
+      "question": "A team wants to establish a scalable evaluation pipeline for a new customer-facing LLM application to verify its safety and faithfulness before deployment. Which approach balances rapid, automated testing with the need for high-quality validation?",
+      "options": [
+        "Relying solely on manual human review of every generated output to guarantee complete correctness.",
+        "Deploying the raw application directly to Kubernetes without an evaluation dataset to monitor live user feedback.",
+        "Using a tiered approach that combines basic heuristics, task-specific metrics, and an LLM-as-a-judge framework.",
+        "Re-training the underlying model on a daily basis using a golden dataset of raw SQL queries."
+      ],
+      "answer": "Using a tiered approach that combines basic heuristics, task-specific metrics, and an LLM-as-a-judge framework.",
+      "explanation": "A tiered approach combines fast automated checks like heuristics and LLM-as-a-judge frameworks to scale validation efficiently, alongside occasional human spot-checks."
+    },
+    {
+      "question": "When preparing large-scale enterprise source data for ingestion into a vector database, an AI Solutions Engineer must decide between performing data transformations in Python or SQL. What is a key risk of choosing to run these heavy transformations in Python using Pandas?",
+      "options": [
+        "Losing the ability to validate schemas using Pydantic during execution.",
+        "Increasing the database engine optimization overhead for structured queries.",
+        "Encountering system memory crashes when processing very large datasets.",
+        "Being unable to run asynchronous tasks or interface with external LLM APIs."
+      ],
+      "answer": "Encountering system memory crashes when processing very large datasets.",
+      "explanation": "Running heavy transformations in Python offers immense programming flexibility but carries a high risk of memory crashes with massive datasets, unlike database-optimised SQL engines."
+    },
+    {
+      "question": "An AI Solutions Engineer notices that a containerised model microservice deployed on a cloud container service suffers from long cold-start latencies and high storage costs. What is the most likely cause of this issue?",
+      "options": [
+        "Orchestrating multi-container environments locally using Docker Compose.",
+        "Storing the production model as a version-controlled OCI artifact in the cloud registry.",
+        "Including heavy deep-learning frameworks and GPU drivers within the Docker image.",
+        "Utilising multi-stage Dockerfiles to keep the deployment images as lean as possible."
+      ],
+      "answer": "Including heavy deep-learning frameworks and GPU drivers within the Docker image.",
+      "explanation": "Packaging heavy deep-learning frameworks and GPU dependencies ensures environmental consistency but results in huge image sizes that increase storage costs and deployment cold-starts."
+    },
+    {
+      "question": "You are building a RAG pipeline using LlamaIndex and a vector database like Pinecone. To ensure the LLM receives the most relevant proprietary context without exceeding token limits, which combination of techniques should you implement?",
+      "options": [
+        "Migrating the entire pipeline to asynchronous SQL queries managed exclusively by dbt.",
+        "Restructuring the vector database to completely bypass semantic searches in favour of basic heuristics.",
+        "Running hybrid search combining keyword and semantic techniques, followed by a reranking model.",
+        "Moving all document chunking to multi-stage Dockerfiles to isolate GPU execution dependencies."
+      ],
+      "answer": "Running hybrid search combining keyword and semantic techniques, followed by a reranking model.",
+      "explanation": "Standard practice for context prioritisation involves utilising hybrid search to gather context and applying a reranking model to deliver the most relevant chunks."
+    }
+  ],
+  "job": {
+    "role": "AI Solutions Engineer",
+    "topics": [
+      "Retrieval-augmented generation",
+      "LLM evaluation",
+      "Python and SQL",
+      "Docker and cloud deployment"
+    ],
+    "sources": [
+      {
+        "title": "amazon.com",
+        "url": "https://aws.amazon.com/what-is/retrieval-augmented-generation/"
+      },
+      {
+        "title": "secondtalent.com",
+        "url": "https://www.secondtalent.com/occupations/rag-engineer/"
+      },
+      {
+        "title": "hireinsouth.com",
+        "url": "https://www.hireinsouth.com/post/what-does-an-ai-solutions-engineer-do"
+      },
+      {
+        "title": "kinde.com",
+        "url": "https://kinde.com/learn/ai-for-software-engineering/best-practice/llm-evaluation-101-for-engineers/"
+      },
+      {
+        "title": "nexla.com",
+        "url": "https://nexla.com/ai-readiness/llm-evaluation/"
+      },
+      {
+        "title": "arxiv.org",
+        "url": "https://arxiv.org/html/2604.24621v1"
+      }
+    ],
+    "closed": false
+  }
+}

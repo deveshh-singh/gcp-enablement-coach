@@ -5,6 +5,7 @@ tests can run without a network connection or any cloud account.
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 import threading
@@ -15,18 +16,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
 
-from app.budget import Budget, MemoryBudget
+from app.budget import DAY_USED, USER_USED, Budget, MemoryBudget
 from app.sources import MIN_MATERIAL_CHARS, Unreadable
 
 logger = logging.getLogger("coach")
 
-TOPICS_DIR = Path(__file__).parent / "topics"
-TOPICS = {
-    "google-cloud-basics": {
-        "title": "Google Cloud Basics",
-        "file": "google-cloud-basics.md",
-    },
-}
+SAMPLES_DIR = Path(__file__).parent / "samples"
 
 QUESTIONS_PER_QUIZ = 5
 CUSTOM = "custom"
@@ -55,12 +50,16 @@ class JobPreparer(Protocol):
     def write_job_questions(self, role: str, notes: str, count: int) -> list[dict]: ...
 
 
-class TopicNotFound(Exception):
-    """The requested topic is not one of the built-in topics."""
+class SampleNotFound(Exception):
+    """The requested quiz is not one of the stored samples."""
 
 
 class DailyLimitReached(Exception):
     """The day's budget of model calls has been used."""
+
+
+class UserLimitReached(Exception):
+    """This user has used their share of today's model calls."""
 
 
 class VisitorLimitReached(Exception):
@@ -81,7 +80,6 @@ class WrongAnswerCount(Exception):
 
 @dataclass(frozen=True)
 class Limits:
-    cooldown_seconds: int = 30
     attempts_per_quiz: int = 3
     quiz_lifetime_seconds: int = 3_600
     max_stored_quizzes: int = 500
@@ -129,6 +127,18 @@ def keep_valid(questions: list[dict]) -> list[dict]:
     return kept
 
 
+def load_samples(folder: Path = SAMPLES_DIR) -> dict[str, dict]:
+    """Read the stored sample quizzes. A bad file stops the app from starting,
+    because a guest should never meet a broken question."""
+    samples = {}
+    for path in sorted(folder.glob("*.json")):
+        sample = json.loads(path.read_text(encoding="utf-8"))
+        if len(keep_valid(sample["questions"])) != QUESTIONS_PER_QUIZ:
+            raise ValueError(f"{path.name} needs {QUESTIONS_PER_QUIZ} valid questions")
+        samples[path.stem] = {"topic": "sample", "questions": sample["questions"], "job": sample["job"]}
+    return samples
+
+
 class Coach:
     def __init__(
         self,
@@ -138,6 +148,7 @@ class Coach:
         clock: Callable[[], float] = time.time,
         shuffle: Callable[[list], None] = random.shuffle,
         preparer: JobPreparer | None = None,
+        samples: dict[str, dict] | None = None,
     ):
         self._write = write
         self._preparer = preparer
@@ -146,20 +157,26 @@ class Coach:
         self._clock = clock
         self._shuffle = shuffle
         self._lock = threading.Lock()
-        self._sample_lock = threading.Lock()
         self._quizzes: OrderedDict[str, dict] = OrderedDict()
-        self._latest: dict[str, str] = {}
+        self._samples = load_samples() if samples is None else samples
         self._visitors: dict[str, list[float]] = {}
 
-    def topics(self) -> list[dict]:
-        return [{"id": key, "title": t["title"]} for key, t in TOPICS.items()]
-
-    def spend_call(self, units: int = 1) -> None:
-        """Pay for a model call, or stop if today's budget is used."""
-        if not self._budget.spend(units):
+    def spend_call(self, user: str, units: int = 1) -> None:
+        """Pay for a model call, or stop if a daily limit has been reached."""
+        result = self._budget.spend(user, units)
+        if result == DAY_USED:
             raise DailyLimitReached()
+        if result == USER_USED:
+            raise UserLimitReached()
 
-    def read_link(self, reader: LinkReader, link: str) -> str:
+    def sample(self, sample_id: str) -> dict:
+        """Return a stored quiz, with no answers. This makes no model call and
+        keeps nothing, so anyone can call it as often as they like."""
+        if sample_id not in self._samples:
+            raise SampleNotFound(sample_id)
+        return self._public(sample_id, self._samples[sample_id])
+
+    def read_link(self, reader: LinkReader, link: str, user: str) -> str:
         """Read a page, allowing for sites that only sometimes come back whole.
 
         Pages built by scripts can return nothing, part of the page or all of it
@@ -168,7 +185,7 @@ class Coach:
         """
         best = ""
         for _ in range(self._limits.link_reads):
-            self.spend_call()
+            self.spend_call(user)
             try:
                 text = reader.read_link(link)
             except Unreadable:
@@ -177,7 +194,7 @@ class Coach:
                 return text
             best = max(best, text, key=len)
 
-        self.spend_call(SEARCH_COST)
+        self.spend_call(user, SEARCH_COST)
         try:
             best = max(best, reader.find_link(link), key=len)
         except Unreadable:
@@ -203,52 +220,29 @@ class Coach:
             if len(self._visitors) > 5_000:
                 self._visitors.clear()
 
-    def new_quiz(self, topic: str) -> dict:
-        """Return a quiz on a built-in topic. It never includes answers."""
-        if topic not in TOPICS:
-            raise TopicNotFound(topic)
-
-        # One model call at a time for the sample topic. Anyone else waiting then
-        # receives the quiz that call produced, which is what keeps a burst of
-        # visitors from turning into a burst of model calls.
-        with self._sample_lock:
-            with self._lock:
-                self._forget_expired()
-                latest = self._quizzes.get(self._latest.get(topic, ""))
-                age = self._clock() - latest["created"] if latest else None
-                if latest and age < self._limits.cooldown_seconds:
-                    return self._public(self._latest[topic], latest)
-
-            pack = (TOPICS_DIR / TOPICS[topic]["file"]).read_text(encoding="utf-8")
-            questions = self._write_questions(TOPICS[topic]["title"], pack)
-            quiz_id = self._store(topic, questions)
-            with self._lock:
-                self._latest[topic] = quiz_id
-                return self._public(quiz_id, self._quizzes[quiz_id])
-
-    def quiz_from_material(self, material: str, title: str = "the material provided") -> dict:
+    def quiz_from_material(self, material: str, user: str, title: str = "the material provided") -> dict:
         """Return a quiz on a visitor's own material. The material is not kept.
 
         A job posting gets a different quiz: practice on the skills the job needs,
         researched on the web, rather than questions about the posting's wording.
         """
-        job = self._job_in(material)
+        job = self._job_in(material, user)
         if job:
-            notes = self._research(job)
+            notes = self._research(job, user)
             if notes:
                 job["sources"] = notes["sources"]
                 questions = self._write_questions(
-                    job["role"], notes["notes"], self._preparer.write_job_questions
+                    job["role"], notes["notes"], user, self._preparer.write_job_questions
                 )
                 return self._stored_quiz(questions, job)
-        return self._stored_quiz(self._write_questions(title, material), None)
+        return self._stored_quiz(self._write_questions(title, material, user), None)
 
     def _stored_quiz(self, questions: list[dict], job: dict | None) -> dict:
         quiz_id = self._store(CUSTOM, questions, job)
         with self._lock:
             return self._public(quiz_id, self._quizzes[quiz_id])
 
-    def _job_in(self, material: str) -> dict | None:
+    def _job_in(self, material: str, user: str) -> dict | None:
         """Return the role and key skills if this is a job posting.
 
         These come from the visitor's material and go into a search prompt, so
@@ -256,7 +250,7 @@ class Coach:
         """
         if self._preparer is None:
             return None
-        self.spend_call()
+        self.spend_call(user)
         try:
             found = self._preparer.analyse(material)
         except Exception:
@@ -275,10 +269,10 @@ class Coach:
             "closed": bool(found.get("is_closed")),
         }
 
-    def _research(self, job: dict) -> dict | None:
+    def _research(self, job: dict, user: str) -> dict | None:
         """Search the web for the skills. If that fails, the caller falls back to
         an ordinary quiz on the posting, which is better than no quiz."""
-        self.spend_call(SEARCH_COST)
+        self.spend_call(user, SEARCH_COST)
         try:
             notes = self._preparer.research(job["role"], job["topics"])
         except Exception:
@@ -297,12 +291,7 @@ class Coach:
 
     def grade(self, quiz_id: str, answers: list[str | None]) -> dict:
         """Mark the answers by comparing text. The model plays no part in this."""
-        with self._lock:
-            self._forget_expired()
-            quiz = self._quizzes.get(quiz_id)
-        if quiz is None:
-            raise QuizNotFound(quiz_id)
-
+        quiz = self._samples.get(quiz_id) or self.full_quiz(quiz_id)
         questions = quiz["questions"]
         if len(answers) != len(questions):
             raise WrongAnswerCount(f"{len(answers)} of {len(questions)}")
@@ -325,10 +314,21 @@ class Coach:
             "job": quiz.get("job"),
         }
 
-    def _write_questions(self, title: str, material: str, write: Write | None = None) -> list[dict]:
+    def full_quiz(self, quiz_id: str) -> dict:
+        """Return a stored quiz with its answers. Never send this to a browser."""
+        with self._lock:
+            self._forget_expired()
+            quiz = self._quizzes.get(quiz_id)
+        if quiz is None:
+            raise QuizNotFound(quiz_id)
+        return quiz
+
+    def _write_questions(
+        self, title: str, material: str, user: str, write: Write | None = None
+    ) -> list[dict]:
         write = write or self._write
         for attempt in range(1, self._limits.attempts_per_quiz + 1):
-            self.spend_call()
+            self.spend_call(user)
             valid = keep_valid(write(title, material, QUESTIONS_PER_QUIZ))
             if len(valid) >= QUESTIONS_PER_QUIZ:
                 chosen = valid[:QUESTIONS_PER_QUIZ]

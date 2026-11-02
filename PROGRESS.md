@@ -37,6 +37,17 @@
 - Google's domain mapping isn't listed for `asia-south1`.
 - Page changes need both deploys: `npx wrangler@4 deploy` and `gcloud run deploy`.
 
+## Sign-in
+- Firebase Authentication with Google sign-in. The page uses a pop-up, because redirect
+  sign-in is unreliable when the page isn't hosted on Firebase.
+- Guests take two stored quizzes with no model calls. Everything else under `/api/` needs a
+  valid ID token, checked before the body is read, so new routes are safe by default.
+- Each user gets 30 calls a day, stored in Firestore under a random ID.
+- With the public key and no sign-in, Firestore reads and writes were refused, and Gemini
+  refuses API keys altogether.
+- Eight requests at once made Firestore abort transactions. The limits held, but requests
+  failed. The library retries a failed save but not an aborted read, so the code now retries
+  the whole transaction after a short random wait.
+
 ## Next
-- Sign-in and per-user limits.
 - Chat grounded in the material.
