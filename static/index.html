@@ -252,7 +252,7 @@
 
     <section id="quiz-view" hidden>
       <form class="panel quiz" id="quiz-form">
-        <div class="count"><span id="count-text"></span></div>
+        <div class="count"><span id="count-text"></span><button class="text-button" id="leave-button" type="button">Back to start</button></div>
         <div class="bar" aria-hidden="true"><span id="bar"></span></div>
         <div class="job" id="job-box" hidden>
           <p id="job-role"></p>
@@ -614,6 +614,12 @@
   });
 
   $("back-button").addEventListener("click", () => { current -= 1; renderQuestion(); });
+
+  $("leave-button").addEventListener("click", () => {
+    const answered = answers.some((answer) => answer !== null);
+    if (answered && !confirm("Leave this quiz? Your answers won't be kept.")) return;
+    showView("start-view");
+  });
   $("again-button").addEventListener("click", () => showView("start-view"));
 
   startSignIn();
